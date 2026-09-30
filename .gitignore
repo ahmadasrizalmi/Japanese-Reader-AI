@@ -1,0 +1,27 @@
+# Build and Dependency directories
+node_modules/
+.gradle/
+build/
+**/build/
+.wrangler/
+dist/
+**/dist/
+Doc/credential.txt
+**/dist/
+
+# Android Studio & IDE
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+*.log
+local.properties
+
+# Keep release builds and assets
+!releases/
+!releases/*.apk
+!releases/*.aab
+!releases/*.png
+!screenshots/
+!screenshots/*.png

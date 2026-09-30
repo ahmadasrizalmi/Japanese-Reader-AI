@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.KomorebiReader" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#FCF9F7</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#FCF9F7</item>
+    </style>
+</resources>

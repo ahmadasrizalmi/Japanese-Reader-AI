@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Komorebi Reader - Japanese Reader AI</title>
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Noto+Serif+JP:wght@500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "primary": "#7f2628",
+            "primary-container": "#9e3d3d",
+            "on-primary": "#ffffff",
+            "on-primary-container": "#ffcac7",
+            "secondary": "#a13e28",
+            "crimson-deep": "#802B2B",
+            "crimson-surface": "#F6E8E8",
+            "canvas-secondary": "#F5EFEB",
+            "surface": "#fcf9f7",
+            "surface-card": "#ffffff",
+            "surface-container": "#f0edeb",
+            "surface-container-low": "#f6f3f1",
+            "text-primary": "#2D2424",
+            "text-secondary": "#6E6262",
+            "text-muted": "#9C8E8E",
+            "highlight-yellow": "#FEF3C7",
+            "highlight-green": "#D1FAE5",
+            "highlight-pink": "#FCE7F3",
+            "highlight-blue": "#DBEAFE",
+            "highlight-lavender": "#EDE9FE",
+            "highlight-mint": "#D1F4E0"
+          },
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mincho: ['"Noto Serif JP"', '"MS Mincho"', 'serif'],
+            gothic: ['"Noto Sans JP"', 'sans-serif']
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body {
+      overscroll-behavior: none;
+      background-color: #fcf9f7;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .pb-safe { padding-bottom: env(safe-area-inset-bottom, 16px); }
+    .pt-safe { padding-top: env(safe-area-inset-top, 16px); }
+    ::-webkit-scrollbar { display: none; }
+    ruby rt {
+      font-size: 11px;
+      line-height: 14px;
+      user-select: none;
+    }
+  </style>
+</head>
+<body class="bg-surface text-text-primary min-h-screen flex flex-col antialiased selection:bg-highlight-pink selection:text-primary">
+
+  <!-- TOP APP BAR -->
+  <header id="top-app-bar" class="sticky top-0 w-full z-40 bg-surface/90 backdrop-blur-xl border-b border-surface-container pt-safe">
+    <div class="h-16 px-4 flex items-center justify-between gap-3 max-w-2xl mx-auto">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <img src="assets/logo.png" alt="Komorebi Reader AI" class="h-9 w-9 rounded-xl object-cover shadow-sm bg-crimson-surface p-0.5">
+        <div class="flex flex-col min-w-0">
+          <span class="text-[10px] uppercase font-bold tracking-widest text-primary">Komorebi</span>
+          <h1 id="top-title" class="text-base font-bold text-text-primary tracking-tight truncate">Japanese Reader AI</h1>
+        </div>
+      </div>
+
+      <!-- Sync Status Badge -->
+      <button id="sync-trigger-btn" class="flex items-center gap-1.5 px-3 py-1 bg-crimson-surface text-primary rounded-full text-xs font-semibold hover:bg-primary hover:text-white transition-all shadow-sm" title="Klik untuk sinkronisasi ke Cloudflare D1">
+        <span class="material-symbols-outlined text-[16px]" id="sync-icon">cloud_done</span>
+        <span id="sync-text">Cloud Sync</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN APP CONTAINER -->
+  <main class="flex-1 max-w-2xl w-full mx-auto pb-28 pt-3 px-4">
+    <!-- View contents dynamically rendered by main.ts -->
+    <div id="view-container"></div>
+  </main>
+
+  <!-- BOTTOM NAVIGATION -->
+  <nav id="bottom-nav" class="fixed bottom-0 inset-x-0 z-40 pb-safe bg-surface/95 backdrop-blur-xl border-t border-surface-container shadow-[0_-4px_20px_rgba(128,43,43,0.06)]">
+    <div class="flex justify-around items-center h-16 px-2 max-w-2xl mx-auto">
+      <button class="nav-item flex flex-col items-center justify-center gap-1 min-w-[56px] text-text-muted hover:text-primary transition-colors" data-view="koleksi">
+        <span class="material-symbols-outlined text-[22px]">menu_book</span>
+        <span class="text-[11px] font-semibold">Koleksi</span>
+      </button>
+      <button class="nav-item flex flex-col items-center justify-center gap-1 min-w-[56px] text-text-muted hover:text-primary transition-colors" data-view="quick-read">
+        <span class="material-symbols-outlined text-[22px]">auto_stories</span>
+        <span class="text-[11px] font-semibold">Quick Read</span>
+      </button>
+      <button class="nav-item flex flex-col items-center justify-center gap-1 min-w-[56px] text-text-muted hover:text-primary transition-colors" data-view="vocab">
+        <span class="material-symbols-outlined text-[22px]">style</span>
+        <span class="text-[11px] font-semibold">Kosakata</span>
+      </button>
+      <button class="nav-item flex flex-col items-center justify-center gap-1 min-w-[56px] text-text-muted hover:text-primary transition-colors" data-view="analytics">
+        <span class="material-symbols-outlined text-[22px]">query_stats</span>
+        <span class="text-[11px] font-semibold">Analisis</span>
+      </button>
+      <button class="nav-item flex flex-col items-center justify-center gap-1 min-w-[56px] text-text-muted hover:text-primary transition-colors" data-view="settings">
+        <span class="material-symbols-outlined text-[22px]">settings</span>
+        <span class="text-[11px] font-semibold">Pengaturan</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- MODAL / BOTTOM SHEET CONTAINER -->
+  <div id="modal-container" class="hidden"></div>
+
+  <script type="module" src="src/main.ts"></script>
+</body>
+</html>
