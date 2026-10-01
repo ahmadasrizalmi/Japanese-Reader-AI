@@ -1,14 +1,18 @@
 package com.japanesereader.ai.ui.screens
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -17,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,332 +49,253 @@ fun ReaderScreen(
     onToggleAudio: (text: String, sentenceId: String?) -> Unit,
     onInspectSentence: (sentenceId: String) -> Unit,
     onAutoSaveVocabulary: (kanji: String, reading: String, meaning: String, pos: String, jlpt: String, sentenceId: String?) -> Unit,
+    onNextArticle: (() -> Unit)? = null,
+    onPreviousArticle: (() -> Unit)? = null,
+    onShowVocabList: (() -> Unit)? = null,
     onBack: () -> Unit
 ) {
-    // Zoomable font size: 22sp default, scalable from 18sp to 36sp
-    var currentFontSizeSp by remember { mutableFloatStateOf(22f) }
+    // Native back handler (bezel swipe / system back)
+    BackHandler { onBack() }
 
-    // Selected word or sentence state (initially null -> 100% clean Zen canvas)
+    // Minimalist Zen Mode States
+    var isFuriganaEnabled by remember { mutableStateOf(false) }
+    var isTranslateModeEnabled by remember { mutableStateOf(false) }
+    var showFloatingPills by remember { mutableStateOf(false) }
+    val expandedSentences = remember { mutableStateMapOf<String, Boolean>() }
+
+    // Zoomable font size: 20sp default, scalable from 16sp to 32sp
+    var currentFontSizeSp by remember { mutableFloatStateOf(20f) }
+
+    // Selected word or sentence state for bottom sheet
     var selectedToken by remember { mutableStateOf<RubyToken?>(null) }
     var selectedSentence by remember { mutableStateOf<SentenceEntity?>(null) }
     var showBottomSheet by remember { mutableStateOf(false) }
 
-    // Persistent revealed furigana map for Tap-to-Reveal:
-    // Key: "${sentenceId}_${token.surface}_$tokenIndex"
+    // Tap-to-reveal fallback per word
     val revealedWordKeys = remember { mutableStateMapOf<String, Boolean>() }
 
     val activeFontFamily = if (kanjiFontStyle == "gothic") FontFamily.SansSerif else FontFamily.Serif
+    val listState = rememberLazyListState()
 
-    Column(
+    // 100% Full-Width Canvas Root with horizontal swipe navigation
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(CanvasSurface)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .pointerInput(Unit) {
+                var totalDragX = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { totalDragX = 0f },
+                    onDragEnd = {
+                        if (totalDragX < -150f) {
+                            // Swiped Left -> Next Article
+                            onNextArticle?.invoke()
+                        } else if (totalDragX > 150f) {
+                            // Swiped Right -> Previous Article or Back
+                            if (onPreviousArticle != null) onPreviousArticle.invoke() else onBack()
+                        }
+                    },
+                    onHorizontalDrag = { _, dragAmount ->
+                        totalDragX += dragAmount
+                    }
+                )
+            }
     ) {
-        // TOP CONTROL BAR: Clean & Minimalist
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+        // Subtle top reading progress bar (1.5dp)
+        val progress by remember {
+            derivedStateOf {
+                val layoutInfo = listState.layoutInfo
+                val total = layoutInfo.totalItemsCount
+                if (total <= 1) 0f
+                else (listState.firstVisibleItemIndex.toFloat() / (total - 1).toFloat()).coerceIn(0f, 1f)
+            }
+        }
+        LinearProgressIndicator(
+            progress = { progress },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 6.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Kembali",
-                        tint = TextPrimary
-                    )
-                }
+                .height(2.dp)
+                .align(Alignment.TopCenter),
+            color = PrimaryCrimson.copy(alpha = 0.6f),
+            trackColor = Color.Transparent
+        )
 
-                Column {
+        // Article Scrollable Canvas (Edge-to-Edge with natural reading margins)
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    // Tap on background / margin toggles the floating control pill!
+                    showFloatingPills = !showFloatingPills
+                }
+                .padding(horizontal = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Top Header: Title & Info
+            item(key = "article_header") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 28.dp, bottom = 8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(100))
+                                .background(CrimsonSurface)
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "JLPT ${article.difficultyLevel}",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = PrimaryCrimson
+                            )
+                        }
+                        Text(
+                            text = article.category,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextMuted
+                        )
+                    }
+
                     Text(
                         text = article.title,
-                        fontSize = 15.sp,
+                        fontSize = (currentFontSizeSp * 1.15f).sp,
                         fontWeight = FontWeight.Bold,
+                        fontFamily = activeFontFamily,
                         color = TextPrimary,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = "${article.category} • JLPT ${article.difficultyLevel}",
-                        fontSize = 11.sp,
-                        color = PrimaryCrimson,
-                        fontWeight = FontWeight.SemiBold
+                        lineHeight = (currentFontSizeSp * 1.5f).sp
                     )
                 }
             }
 
-            // Quick Font Zoom Steppers (A- / A+)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(100))
-                    .background(CanvasSecondary)
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = "A-",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (currentFontSizeSp > 18f) TextPrimary else TextMuted,
-                    modifier = Modifier
-                        .clickable(enabled = currentFontSizeSp > 18f) {
-                            currentFontSizeSp = Math.max(18f, currentFontSizeSp - 2f)
-                        }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-                Text(
-                    text = "${currentFontSizeSp.toInt()}sp",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = PrimaryCrimson
-                )
-                Text(
-                    text = "A+",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (currentFontSizeSp < 36f) TextPrimary else TextMuted,
-                    modifier = Modifier
-                        .clickable(enabled = currentFontSizeSp < 36f) {
-                            currentFontSizeSp = Math.min(36f, currentFontSizeSp + 2f)
-                        }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-            }
-        }
-
-        // Contextual Floating Action Pill (Appears when text or sentence is selected)
-        if (selectedSentence != null || selectedToken != null) {
-            val isSentenceMode = selectedSentence != null && selectedToken == null
-            val activeSent = selectedSentence
-            val activeTok = selectedToken
-            val textToAct = if (isSentenceMode) activeSent?.originalText ?: "" else activeTok?.surface ?: ""
-            val sentenceIdForAudio = activeSent?.id
-            val isAudioPlaying = currentlyPlayingText == textToAct
-
-            Card(
-                shape = RoundedCornerShape(100),
-                colors = CardDefaults.cardColors(containerColor = TextPrimary),
-                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-                modifier = Modifier
-                    .padding(vertical = 4.dp)
-                    .align(Alignment.CenterHorizontally)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    // Mode Switcher: [Pilih Kalimat] or [Pilih Kata]
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(100))
-                            .background(if (isSentenceMode) HighlightYellow else CrimsonSurface)
-                            .clickable {
-                                if (isSentenceMode) {
-                                    if (activeTok != null) {
-                                        selectedToken = activeTok
-                                    }
-                                } else {
-                                    // Switch to sentence mode
-                                    selectedToken = null
-                                }
-                            }
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        Text(
-                            text = if (isSentenceMode) "Kalimat Utuh" else "Pilih Kalimat",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isSentenceMode) TextPrimary else PrimaryCrimson
-                        )
-                    }
-
-                    // Divider
-                    Box(modifier = Modifier.width(1.dp).height(12.dp).background(Color.White.copy(alpha = 0.3f)))
-
-                    // Translate / Detail Button
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(100))
-                            .clickable { showBottomSheet = true }
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Translate,
-                            contentDescription = "Detail",
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Detail",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-
-                    // Divider
-                    Box(modifier = Modifier.width(1.dp).height(12.dp).background(Color.White.copy(alpha = 0.3f)))
-
-                    // Audio Play/Stop Button
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(100))
-                            .clickable { onToggleAudio(textToAct, sentenceIdForAudio) }
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isAudioPlaying) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
-                            contentDescription = if (isAudioPlaying) "Stop" else "Audio",
-                            tint = if (isAudioPlaying) HighlightYellow else Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (isAudioPlaying) "Hentikan" else "Audio",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isAudioPlaying) HighlightYellow else Color.White
-                        )
-                    }
-
-                    // Close Selection Button
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Batal",
-                        tint = Color.White.copy(alpha = 0.7f),
-                        modifier = Modifier
-                            .size(16.dp)
-                            .clickable {
-                                selectedToken = null
-                                selectedSentence = null
-                            }
-                    )
-                }
-            }
-        }
-
-        // 100% ZEN READING CANVAS: Responsive, tactile, non-blocking touch targets
-        Card(
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                itemsIndexed(sentences, key = { _, s -> s.id }) { sIndex, sent ->
-                    // Tokenize into full lexical words
-                    val tokens = remember(sent.furiganaPayload, sent.originalText) {
-                        try {
-                            val listType = object : TypeToken<List<RubyToken>>() {}.type
-                            val parsed: List<RubyToken>? = Gson().fromJson(sent.furiganaPayload, listType)
-                            if (parsed != null && parsed.isNotEmpty()) {
-                                parsed
-                            } else {
-                                JapaneseMorphologyEngine.tokenize(sent.originalText).map {
-                                    RubyToken(
-                                        surface = it.surface,
-                                        reading = it.reading,
-                                        romaji = it.romaji,
-                                        pos = it.pos,
-                                        meaning = it.meaning,
-                                        jlpt = it.jlpt
-                                    )
-                                }
-                            }
-                        } catch (e: Exception) {
+            // Sentences List
+            itemsIndexed(sentences, key = { _, s -> s.id }) { _, sent ->
+                val tokens = remember(sent.furiganaPayload, sent.originalText) {
+                    try {
+                        val listType = object : TypeToken<List<RubyToken>>() {}.type
+                        val parsed: List<RubyToken>? = Gson().fromJson(sent.furiganaPayload, listType)
+                        if (parsed != null && parsed.isNotEmpty()) {
+                            parsed
+                        } else {
                             JapaneseMorphologyEngine.tokenize(sent.originalText).map {
-                                RubyToken(surface = it.surface, reading = it.reading, romaji = it.romaji, pos = it.pos)
+                                RubyToken(
+                                    surface = it.surface,
+                                    reading = it.reading,
+                                    romaji = it.romaji,
+                                    pos = it.pos,
+                                    meaning = it.meaning,
+                                    jlpt = it.jlpt
+                                )
                             }
+                        }
+                    } catch (e: Exception) {
+                        JapaneseMorphologyEngine.tokenize(sent.originalText).map {
+                            RubyToken(surface = it.surface, reading = it.reading, romaji = it.romaji, pos = it.pos)
+                        }
+                    }
+                }
+
+                val isSentenceSelected = selectedSentence?.id == sent.id
+                val isSentenceExpanded = isTranslateModeEnabled && (expandedSentences[sent.id] == true)
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    // Attention tracker badge if sentence needs deep study
+                    if (sent.needsDeepStudy) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .padding(bottom = 4.dp)
+                                .clip(RoundedCornerShape(100))
+                                .background(CrimsonSurface)
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Flag,
+                                contentDescription = null,
+                                tint = PrimaryCrimson,
+                                modifier = Modifier.size(11.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Perlu pengulangan intensif (${sent.inspectionCount}x dibongkar)",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = PrimaryCrimson
+                            )
                         }
                     }
 
-                    val isSentenceSelected = selectedSentence?.id == sent.id
-                    val isOnlySentenceActive = isSentenceSelected && selectedToken == null
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(
-                                if (isOnlySentenceActive) HighlightYellow.copy(alpha = 0.45f)
-                                else if (isSentenceSelected) HighlightYellow.copy(alpha = 0.15f)
-                                else Color.Transparent
-                            )
-                            .padding(6.dp)
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Attention tracker badge if sentence needs deep study (C_inspect >= 3)
-                        if (sent.needsDeepStudy) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
+                        // Seamless あA sentence translation trigger icon
+                        if (isTranslateModeEnabled) {
+                            Box(
                                 modifier = Modifier
-                                    .padding(bottom = 4.dp)
-                                    .clip(RoundedCornerShape(100))
-                                    .background(CrimsonSurface)
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    .padding(end = 6.dp, top = 2.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSentenceExpanded) PrimaryCrimson else CanvasSecondary)
+                                    .clickable {
+                                        expandedSentences[sent.id] = !(expandedSentences[sent.id] ?: false)
+                                    }
+                                    .padding(horizontal = 5.dp, vertical = 3.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Flag,
-                                    contentDescription = null,
-                                    tint = PrimaryCrimson,
-                                    modifier = Modifier.size(11.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "Perlu pengulangan intensif (${sent.inspectionCount}x dibongkar)",
+                                    text = "あA",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = PrimaryCrimson
+                                    color = if (isSentenceExpanded) Color.White else TextSecondary
                                 )
                             }
                         }
 
-                        // Tokens FlowRow
+                        // Japanese Tokens FlowRow
                         FlowRow(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.weight(1f),
                             horizontalArrangement = Arrangement.Start,
-                            verticalArrangement = Arrangement.Center
+                            verticalArrangement = Arrangement.Bottom
                         ) {
                             tokens.forEachIndexed { tIndex, token ->
                                 val wordKey = "${sent.id}_${token.surface}_$tIndex"
                                 val isTokenSelected = selectedToken?.surface == token.surface && selectedSentence?.id == sent.id
-                                val hasReading = !token.reading.isNullOrBlank() && token.reading != token.surface
-                                val isRevealed = (revealedWordKeys[wordKey] == true) || isTokenSelected
+                                val hasReading = !token.reading.isNullOrBlank() &&
+                                        token.reading != token.surface &&
+                                        token.surface !in listOf("、", "。", "！", "？", "「", "」", "（", "）", "・")
+                                val showRuby = isFuriganaEnabled || (revealedWordKeys[wordKey] == true) || isTokenSelected
 
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Bottom,
                                     modifier = Modifier
-                                        .padding(horizontal = 2.dp, vertical = 2.dp)
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 1.dp, vertical = 1.dp)
+                                        .clip(RoundedCornerShape(6.dp))
                                         .background(
                                             if (isTokenSelected) PastelPalette[Math.abs(token.surface.hashCode()) % PastelPalette.size]
                                             else Color.Transparent
                                         )
                                         .clickable {
-                                            // Toggle furigana reveal on tap
+                                            // Tap on word opens detailed inspection bottom sheet & saves to SRS
                                             revealedWordKeys[wordKey] = !(revealedWordKeys[wordKey] ?: false)
                                             selectedToken = token
                                             selectedSentence = sent
+                                            showBottomSheet = true
 
-                                            // Auto-save word in background if it's a content word (skip punctuation and bare particles)
                                             if (token.pos !in listOf("punct", "particle") &&
                                                 token.surface !in listOf("、", "。", "！", "？", "は", "が", "の", "に", "で", "を", "と", "へ")
                                             ) {
@@ -380,28 +306,26 @@ fun ReaderScreen(
                                                 onAutoSaveVocabulary(token.surface, reading, meaning, pos, jlpt, sent.id)
                                             }
 
-                                            // Inspection telemetry
                                             onInspectSentence(sent.id)
                                         }
-                                        .padding(horizontal = 3.dp, vertical = 1.dp)
+                                        .padding(horizontal = 2.dp, vertical = 1.dp)
                                 ) {
-                                    // Furigana appears on tap!
+                                    // Ruby Furigana text: Clean, precise, directly above Kanji
                                     if (hasReading && token.reading != null) {
-                                        if (isRevealed) {
+                                        if (showRuby) {
                                             Text(
                                                 text = token.reading,
-                                                fontSize = (currentFontSizeSp * 0.52f).sp,
-                                                fontWeight = FontWeight.Bold,
+                                                fontSize = (currentFontSizeSp * 0.48f).sp,
+                                                fontWeight = FontWeight.SemiBold,
                                                 color = PrimaryCrimson,
-                                                lineHeight = (currentFontSizeSp * 0.6f).sp
+                                                lineHeight = (currentFontSizeSp * 0.55f).sp
                                             )
-                                        } else {
-                                            // Reserve vertical space so baseline NEVER jumps when furigana appears
-                                            Spacer(modifier = Modifier.height((currentFontSizeSp * 0.6f).dp))
+                                        } else if (isFuriganaEnabled) {
+                                            Spacer(modifier = Modifier.height((currentFontSizeSp * 0.55f).dp))
                                         }
                                     }
 
-                                    // Full lexical word
+                                    // Kanji Surface text
                                     Text(
                                         text = token.surface,
                                         fontSize = currentFontSizeSp.sp,
@@ -412,43 +336,209 @@ fun ReaderScreen(
                                 }
                             }
                         }
+                    }
 
-                        // Direct Contextual Translation Box right on canvas when sentence is selected!
-                        if (isSentenceSelected && sent.translatedText.isNotBlank()) {
-                            Box(
+                    // Seamless Inline Sentence Translation: directly below the Japanese sentence
+                    AnimatedVisibility(
+                        visible = isSentenceExpanded,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
+                        if (sent.translatedText.isNotBlank()) {
+                            Text(
+                                text = sent.translatedText,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Normal,
+                                color = TextSecondary,
+                                lineHeight = 20.sp,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 8.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(CanvasSecondary)
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "TERJEMAHAN KALIMAT",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = PrimaryCrimson,
-                                        letterSpacing = 0.5.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = sent.translatedText,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = TextPrimary,
-                                        lineHeight = 18.sp
-                                    )
+                                    .padding(start = if (isTranslateModeEnabled) 28.dp else 4.dp, top = 4.dp, bottom = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Article Footer Actions (Mark as Finished & Show Looked-Up Words)
+            item(key = "article_footer") {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 28.dp, bottom = 90.dp)
+                ) {
+                    // Green solid CTA button: MARK AS FINISHED
+                    Button(
+                        onClick = {
+                            onBack()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF22C55E)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = Color.White)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "MARK AS FINISHED",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Secondary outlined button: SHOW LOOKED-UP WORDS
+                    OutlinedButton(
+                        onClick = {
+                            if (onShowVocabList != null) {
+                                onShowVocabList()
+                            } else {
+                                onBack()
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                    ) {
+                        Text(
+                            text = "SHOW LOOKED-UP WORDS",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextSecondary,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // Floating Minimalist Action Pill (Appears upon tapping outside text)
+        AnimatedVisibility(
+            visible = showFloatingPills,
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut() + slideOutVertically { it / 2 },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 24.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(100),
+                color = TextPrimary.copy(alpha = 0.94f),
+                shadowElevation = 8.dp,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    // Toggle Furigana [ふりがな]
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(100))
+                            .background(if (isFuriganaEnabled) PrimaryCrimson else Color.Transparent)
+                            .clickable { isFuriganaEnabled = !isFuriganaEnabled }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "ふりがな",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isFuriganaEnabled) Color.White else Color.White.copy(alpha = 0.65f)
+                        )
+                    }
+
+                    // Divider
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(14.dp)
+                            .background(Color.White.copy(alpha = 0.25f))
+                    )
+
+                    // Toggle Translate [あA]
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(100))
+                            .background(if (isTranslateModeEnabled) PrimaryCrimson else Color.Transparent)
+                            .clickable {
+                                isTranslateModeEnabled = !isTranslateModeEnabled
+                                if (isTranslateModeEnabled) {
+                                    // Expand all sentences by default for convenient inline reading
+                                    sentences.forEach { s -> expandedSentences[s.id] = true }
+                                } else {
+                                    expandedSentences.clear()
                                 }
                             }
-                        }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "あA",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isTranslateModeEnabled) Color.White else Color.White.copy(alpha = 0.65f)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Terjemah",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isTranslateModeEnabled) Color.White else Color.White.copy(alpha = 0.65f)
+                        )
+                    }
+
+                    // Divider
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(14.dp)
+                            .background(Color.White.copy(alpha = 0.25f))
+                    )
+
+                    // Font Stepper (A- / A+)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    ) {
+                        Text(
+                            text = "A-",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (currentFontSizeSp > 16f) Color.White else Color.White.copy(alpha = 0.3f),
+                            modifier = Modifier
+                                .clickable(enabled = currentFontSizeSp > 16f) {
+                                    currentFontSizeSp = Math.max(16f, currentFontSizeSp - 2f)
+                                }
+                                .padding(4.dp)
+                        )
+                        Text(
+                            text = "A+",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (currentFontSizeSp < 32f) Color.White else Color.White.copy(alpha = 0.3f),
+                            modifier = Modifier
+                                .clickable(enabled = currentFontSizeSp < 32f) {
+                                    currentFontSizeSp = Math.min(32f, currentFontSizeSp + 2f)
+                                }
+                                .padding(4.dp)
+                        )
                     }
                 }
             }
         }
     }
 
-    // Modal Bottom Sheet: Word & Grammar Detail (With toggleable Play/Stop Audio)
+    // Modal Bottom Sheet: Word & Grammar Detail (preserves word inspection)
     if (showBottomSheet && (selectedToken != null || selectedSentence != null)) {
         val token = selectedToken
         val sentence = selectedSentence
@@ -557,96 +647,111 @@ fun ReaderScreen(
                     ) {
                         Icon(
                             imageVector = if (isAudioPlaying) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
-                            contentDescription = if (isAudioPlaying) "Hentikan Suara" else "Putar Pelafalan",
+                            contentDescription = "Audio",
                             tint = if (isAudioPlaying) Color.White else PrimaryCrimson,
                             modifier = Modifier.size(24.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Meaning Tile
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(CanvasSecondary)
-                        .padding(14.dp)
+                // Meaning Card
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = CanvasSecondary),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("ARTI KONTEKS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TextMuted)
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(100))
-                                    .background(HighlightMint)
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("Otomatis Tersimpan", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1B5E20))
-                            }
-                        }
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text(
+                            text = "ARTI UTAMA (INDONESIAN)",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = PrimaryCrimson,
+                            letterSpacing = 0.5.sp
+                        )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = token?.meaning ?: sentence?.translatedText ?: "Terjemahan",
+                            text = token?.meaning ?: sentence?.translatedText ?: "Memuat penjelasan kosakata...",
                             fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary,
+                            lineHeight = 22.sp
                         )
-                        if (sentence != null && token != null) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Kalimat: \"${sentence.translatedText}\"",
-                                fontSize = 12.sp,
-                                color = TextSecondary,
-                                lineHeight = 16.sp
-                            )
-                        }
                     }
                 }
 
-                // Grammar breakdown (if present)
-                if (grammarList.isNotEmpty()) {
+                // Sentence Context Translation
+                if (sentence != null && sentence.translatedText.isNotBlank()) {
                     Spacer(modifier = Modifier.height(10.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("BEDAH TATA BAHASA & POLA KALIMAT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = PrimaryCrimson)
-                        grammarList.forEach { g ->
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(HighlightPink.copy(alpha = 0.5f))
-                                    .padding(10.dp)
-                            ) {
-                                Column {
-                                    Text(text = g.pattern, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                                    Text(text = g.explanation, fontSize = 11.sp, color = TextSecondary)
-                                }
+                    Text(
+                        text = "Konteks Kalimat:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextMuted
+                    )
+                    Text(
+                        text = sentence.translatedText,
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+
+                // Grammar Analysis Section
+                if (grammarList.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "ANALISIS TATA BAHASA & POLA KALIMAT",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = PrimaryCrimson,
+                        letterSpacing = 0.5.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    grammarList.forEach { item ->
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = SurfaceContainer.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = item.pattern,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = PrimaryCrimson
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = item.explanation,
+                                    fontSize = 11.sp,
+                                    color = TextPrimary,
+                                    lineHeight = 16.sp
+                                )
                             }
                         }
                     }
                 }
 
-                // Kanji Deconstruction
+                // Kanji Breakdown Info
                 if (surfaceText.any { JapaneseMorphologyEngine.isKanji(it) }) {
                     Spacer(modifier = Modifier.height(10.dp))
-                    val firstKanji = surfaceText.first { JapaneseMorphologyEngine.isKanji(it) }.toString()
-
+                    val firstKanji = surfaceText.firstOrNull { JapaneseMorphologyEngine.isKanji(it) }?.toString() ?: ""
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(CanvasSecondary)
                             .padding(10.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(42.dp)
+                                    .size(36.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(SurfaceCard),
                                 contentAlignment = Alignment.Center
@@ -668,7 +773,7 @@ fun ReaderScreen(
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = "Radikal kanji & morfem dasar",
+                                    text = "Tersimpan otomatis ke dek flashcard",
                                     fontSize = 10.sp,
                                     color = TextSecondary
                                 )

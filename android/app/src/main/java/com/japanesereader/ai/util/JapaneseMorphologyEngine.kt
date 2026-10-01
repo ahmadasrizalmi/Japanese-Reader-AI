@@ -262,10 +262,42 @@ object JapaneseMorphologyEngine {
         return (cp in 0x4E00..0x9FAF) || (cp in 0x3400..0x4DBF)
     }
 
+    fun isKatakana(c: Char): Boolean {
+        val cp = c.code
+        return (cp in 0x30A0..0x30FF) || c == 'ー'
+    }
+
+    fun isHiragana(c: Char): Boolean {
+        val cp = c.code
+        return cp in 0x3040..0x309F
+    }
+
+    fun katakanaToHiragana(c: Char): Char {
+        return if (c in '\u30A1'..'\u30F6') (c.code - 0x60).toChar() else c
+    }
+
     fun kanaToRomaji(kana: String): String {
         val sb = StringBuilder()
-        for (c in kana) {
-            sb.append(KANA_ROMAJI[c.toString()] ?: c.toString())
+        var idx = 0
+        while (idx < kana.length) {
+            val c = kana[idx]
+            if (c == 'ー') {
+                if (sb.isNotEmpty()) sb.append(sb.last())
+                idx++
+                continue
+            }
+            val hiraChar = katakanaToHiragana(c)
+            if (idx + 1 < kana.length) {
+                val nextHira = katakanaToHiragana(kana[idx + 1])
+                val combo = "$hiraChar$nextHira"
+                if (KANA_ROMAJI.containsKey(combo)) {
+                    sb.append(KANA_ROMAJI[combo])
+                    idx += 2
+                    continue
+                }
+            }
+            sb.append(KANA_ROMAJI[hiraChar.toString()] ?: c.toString())
+            idx++
         }
         return sb.toString()
     }
@@ -299,39 +331,90 @@ object JapaneseMorphologyEngine {
                 )
                 i += matched.surface.length
             } else {
-                val singleChar = text[i].toString()
-                val isK = isKanji(text[i])
-                val reading = if (isK) {
-                    KANJI_READINGS[text[i]] ?: "かんじ"
-                } else {
-                    singleChar
+                val ch = text[i]
+                when {
+                    isKatakana(ch) -> {
+                        var end = i
+                        while (end < text.length && isKatakana(text[end])) {
+                            end++
+                        }
+                        val kataWord = text.substring(i, end)
+                        val kataRomaji = kanaToRomaji(kataWord)
+                        result.add(
+                            TokenDto(
+                                surface = kataWord,
+                                reading = kataWord,
+                                romaji = kataRomaji,
+                                pos = "noun",
+                                meaning = kataWord,
+                                jlpt = "N4"
+                            )
+                        )
+                        i = end
+                    }
+                    isKanji(ch) -> {
+                        var end = i
+                        while (end < text.length && isKanji(text[end])) {
+                            end++
+                        }
+                        val kanjiWord = text.substring(i, end)
+                        val readingSb = StringBuilder()
+                        for (k in kanjiWord) {
+                            readingSb.append(KANJI_READINGS[k] ?: "")
+                        }
+                        val reading = if (readingSb.isNotEmpty()) readingSb.toString() else kanjiWord
+                        val romaji = kanaToRomaji(reading)
+                        val jlpt = when {
+                            kanjiWord.any { N2_N1_KANJI.contains(it) } -> "N2"
+                            kanjiWord.any { N3_KANJI.contains(it) } -> "N3"
+                            kanjiWord.any { N4_KANJI.contains(it) } -> "N4"
+                            else -> "N5"
+                        }
+                        result.add(
+                            TokenDto(
+                                surface = kanjiWord,
+                                reading = reading,
+                                romaji = romaji,
+                                pos = "noun",
+                                meaning = "Kosakata Kanji: $kanjiWord",
+                                jlpt = jlpt
+                            )
+                        )
+                        i = end
+                    }
+                    ch.isLetterOrDigit() && ch.code < 0x3000 -> {
+                        var end = i
+                        while (end < text.length && text[end].isLetterOrDigit() && text[end].code < 0x3000) {
+                            end++
+                        }
+                        val word = text.substring(i, end)
+                        result.add(
+                            TokenDto(
+                                surface = word,
+                                reading = word,
+                                romaji = word,
+                                pos = "other",
+                                meaning = word,
+                                jlpt = "-"
+                            )
+                        )
+                        i = end
+                    }
+                    else -> {
+                        val singleChar = text[i].toString()
+                        result.add(
+                            TokenDto(
+                                surface = singleChar,
+                                reading = singleChar,
+                                romaji = kanaToRomaji(singleChar),
+                                pos = if (isHiragana(ch)) "particle" else "punct",
+                                meaning = "",
+                                jlpt = "-"
+                            )
+                        )
+                        i++
+                    }
                 }
-                val romaji = kanaToRomaji(reading)
-                val meaning = if (isK) {
-                    "Kanji: $singleChar ($reading)"
-                } else {
-                    ""
-                }
-                result.add(
-                    TokenDto(
-                        surface = singleChar,
-                        reading = reading,
-                        romaji = romaji,
-                        pos = if (isK) "noun" else if (singleChar.matches(Regex("[\\u3040-\\u309F]"))) "kana" else "other",
-                        meaning = meaning,
-                        jlpt = if (isK) {
-                            val ch = text[i]
-                            when {
-                                N5_KANJI.contains(ch) -> "N5"
-                                N4_KANJI.contains(ch) -> "N4"
-                                N3_KANJI.contains(ch) -> "N3"
-                                N2_N1_KANJI.contains(ch) -> "N2"
-                                else -> "N4"
-                            }
-                        } else "-"
-                    )
-                )
-                i++
             }
         }
         return result

@@ -87,6 +87,7 @@ class KomorebiApiClient(
                 requestMethod = "POST"
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Accept", "application/json")
+                setRequestProperty("User-Agent", "KomorebiReader/1.5.0 (Android; Mobile)")
                 doOutput = true
                 connectTimeout = 6000
                 readTimeout = 8000

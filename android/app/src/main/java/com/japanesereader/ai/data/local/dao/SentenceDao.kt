@@ -6,6 +6,9 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SentenceDao {
+    @Query("SELECT * FROM sentences")
+    fun getAllSentences(): Flow<List<SentenceEntity>>
+
     @Query("SELECT * FROM sentences WHERE article_id = :articleId ORDER BY sequence_order ASC")
     fun getSentencesByArticleId(articleId: String): Flow<List<SentenceEntity>>
 

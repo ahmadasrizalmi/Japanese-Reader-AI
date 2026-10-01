@@ -21,6 +21,7 @@ class KomorebiRepository(
 
     val articles: Flow<List<ArticleEntity>> = database.articleDao().getAllArticles()
     val vocabularies: Flow<List<VocabularyEntity>> = database.vocabularyDao().getAllVocabularies()
+    val allSentences: Flow<List<SentenceEntity>> = database.sentenceDao().getAllSentences()
     val settings: Flow<UserSettingsEntity?> = database.userSettingsDao().getUserSettingsFlow("usr_default")
 
     private val _syncStatus = MutableStateFlow("Synced")

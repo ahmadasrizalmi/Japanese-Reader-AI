@@ -39,7 +39,16 @@ import kotlinx.coroutines.launch
 import androidx.lifecycle.lifecycleScope
 import com.japanesereader.ai.media.PiperAudioManager
 import java.util.Locale
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 
+fun isNetworkAvailable(context: Context): Boolean {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+    val net = cm.activeNetwork ?: return false
+    val caps = cm.getNetworkCapabilities(net) ?: return false
+    return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+}
 class MainActivity : ComponentActivity() {
     private lateinit var database: KomorebiDatabase
     private lateinit var prefs: PreferencesManager
@@ -97,12 +106,17 @@ fun KomorebiApp(
     var isReaderOpen by rememberSaveable { mutableStateOf(false) }
     var activeArticleId by rememberSaveable { mutableStateOf<String?>(null) }
     var showAddTextBottomSheet by remember { mutableStateOf(false) }
-
-    // 3 Main Horizontal Pager tabs: 0: Koleksi, 1: Kemajuan & Kosakata, 2: Pengaturan
-    val pagerState = rememberPagerState(pageCount = { 3 })
+    var showOfflineWarningDialog by remember { mutableStateOf(false) }
+    var inputTitle by remember { mutableStateOf("") }
+    var inputCategory by remember { mutableStateOf("Percakapan") }
+    var inputRawText by remember { mutableStateOf("") }
+    var isAnalyzingText by remember { mutableStateOf(false) }
+    // 4 Main Horizontal Pager tabs: 0: Koleksi, 1: Flashcard, 2: Kemajuan, 3: Pengaturan
+    val pagerState = rememberPagerState(pageCount = { 4 })
 
     val articles by repository.articles.collectAsState(initial = emptyList())
     val vocabularies by repository.vocabularies.collectAsState(initial = emptyList())
+    val allSentences by repository.allSentences.collectAsState(initial = emptyList())
     val settings by repository.settings.collectAsState(initial = null)
     val syncStatus by repository.syncStatus.collectAsState()
 
@@ -202,47 +216,26 @@ fun KomorebiApp(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(100))
                                     .background(if (isTab0) CrimsonSurface else Color.Transparent)
-                                    .padding(horizontal = 16.dp, vertical = 3.dp),
+                                    .padding(horizontal = 12.dp, vertical = 3.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.CollectionsBookmark,
                                     contentDescription = "Koleksi",
                                     tint = if (isTab0) PrimaryCrimson else TextMuted,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "Koleksi",
-                                fontSize = 10.sp,
+                                fontSize = 9.5.sp,
                                 fontWeight = if (isTab0) FontWeight.Bold else FontWeight.Normal,
                                 color = if (isTab0) PrimaryCrimson else TextMuted
                             )
                         }
 
-                        // Center FAB (+): Add text scratchpad in thumb reach!
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            IconButton(
-                                onClick = { showAddTextBottomSheet = true },
-                                modifier = Modifier
-                                    .size(52.dp)
-                                    .clip(CircleShape)
-                                    .background(PrimaryCrimson)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = "Tambah Teks Baru",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(26.dp)
-                                )
-                            }
-                        }
-
-                        // Tab 1: Kemajuan & Kosakata (Unified)
+                        // Tab 1: Flashcard SRS
                         val isTab1 = pagerState.currentPage == 1
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -257,26 +250,47 @@ fun KomorebiApp(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(100))
                                     .background(if (isTab1) CrimsonSurface else Color.Transparent)
-                                    .padding(horizontal = 16.dp, vertical = 3.dp),
+                                    .padding(horizontal = 12.dp, vertical = 3.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Insights,
-                                    contentDescription = "Kemajuan",
+                                    imageVector = Icons.Default.Style,
+                                    contentDescription = "Flashcard",
                                     tint = if (isTab1) PrimaryCrimson else TextMuted,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Kemajuan",
-                                fontSize = 10.sp,
+                                text = "Flashcard",
+                                fontSize = 9.5.sp,
                                 fontWeight = if (isTab1) FontWeight.Bold else FontWeight.Normal,
                                 color = if (isTab1) PrimaryCrimson else TextMuted
                             )
                         }
 
-                        // Tab 2: Pengaturan
+                        // Center FAB (+): Add text scratchpad in thumb reach!
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            IconButton(
+                                onClick = { showAddTextBottomSheet = true },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .background(PrimaryCrimson)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Tambah Teks Baru",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+
+                        // Tab 2: Kemajuan
                         val isTab2 = pagerState.currentPage == 2
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -291,22 +305,56 @@ fun KomorebiApp(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(100))
                                     .background(if (isTab2) CrimsonSurface else Color.Transparent)
-                                    .padding(horizontal = 16.dp, vertical = 3.dp),
+                                    .padding(horizontal = 12.dp, vertical = 3.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Insights,
+                                    contentDescription = "Kemajuan",
+                                    tint = if (isTab2) PrimaryCrimson else TextMuted,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Kemajuan",
+                                fontSize = 9.5.sp,
+                                fontWeight = if (isTab2) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isTab2) PrimaryCrimson else TextMuted
+                            )
+                        }
+
+                        // Tab 3: Pengaturan
+                        val isTab3 = pagerState.currentPage == 3
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    coroutineScope.launch { pagerState.animateScrollToPage(3) }
+                                }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(100))
+                                    .background(if (isTab3) CrimsonSurface else Color.Transparent)
+                                    .padding(horizontal = 12.dp, vertical = 3.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Tune,
                                     contentDescription = "Pengaturan",
-                                    tint = if (isTab2) PrimaryCrimson else TextMuted,
-                                    modifier = Modifier.size(22.dp)
+                                    tint = if (isTab3) PrimaryCrimson else TextMuted,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "Pengaturan",
-                                fontSize = 10.sp,
-                                fontWeight = if (isTab2) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isTab2) PrimaryCrimson else TextMuted
+                                fontSize = 9.5.sp,
+                                fontWeight = if (isTab3) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isTab3) PrimaryCrimson else TextMuted
                             )
                         }
                     }
@@ -321,6 +369,7 @@ fun KomorebiApp(
                 .background(CanvasSurface)
         ) {
             if (isReaderOpen && activeArticle != null) {
+                val currentArtIndex = articles.indexOfFirst { it.id == activeArticleId }
                 // Full Reader Studio Screen
                 ReaderScreen(
                     article = activeArticle,
@@ -338,10 +387,20 @@ fun KomorebiApp(
                             repository.addVocabulary(kanji, reading, meaning, pos, jlpt, sentId)
                         }
                     },
+                    onNextArticle = if (currentArtIndex in 0 until articles.size - 1) {
+                        { activeArticleId = articles[currentArtIndex + 1].id }
+                    } else null,
+                    onPreviousArticle = if (currentArtIndex > 0) {
+                        { activeArticleId = articles[currentArtIndex - 1].id }
+                    } else null,
+                    onShowVocabList = {
+                        isReaderOpen = false
+                        coroutineScope.launch { pagerState.animateScrollToPage(1) }
+                    },
                     onBack = { isReaderOpen = false }
                 )
             } else {
-                // Swipeable HorizontalPager between the 3 main tabs
+                // Swipeable HorizontalPager between the 4 main tabs
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize()
@@ -371,6 +430,20 @@ fun KomorebiApp(
                             )
                         }
                         1 -> {
+                            FlashcardScreen(
+                                vocabularies = vocabularies,
+                                sentences = allSentences,
+                                kanjiFontStyle = settings?.kanjiFontStyle ?: repository.prefs?.kanjiFontStyle ?: "mincho",
+                                currentlyPlayingText = currentlyPlayingText,
+                                onPlayAudio = { text -> onToggleAudio(text, null) },
+                                onUpdateVocabulary = { vocab ->
+                                    coroutineScope.launch {
+                                        repository.updateVocabulary(vocab)
+                                    }
+                                }
+                            )
+                        }
+                        2 -> {
                             LearningProgressScreen(
                                 articles = articles,
                                 vocabularies = vocabularies,
@@ -388,7 +461,7 @@ fun KomorebiApp(
                                 }
                             )
                         }
-                        2 -> {
+                        3 -> {
                             SettingsScreen(
                                 settings = settings,
                                 totalVocabCount = vocabularies.size,
@@ -416,11 +489,6 @@ fun KomorebiApp(
 
     // Thumb-reach Bottom Sheet Modal for Adding Text
     if (showAddTextBottomSheet) {
-        var inputTitle by remember { mutableStateOf("") }
-        var inputCategory by remember { mutableStateOf("Percakapan") }
-        var inputRawText by remember { mutableStateOf("") }
-        var isAnalyzingText by remember { mutableStateOf(false) }
-
         ModalBottomSheet(
             onDismissRequest = { showAddTextBottomSheet = false },
             containerColor = SurfaceCard,
@@ -471,26 +539,29 @@ fun KomorebiApp(
                 Button(
                     onClick = {
                         if (inputRawText.isNotBlank()) {
-                            isAnalyzingText = true
-                            coroutineScope.launch {
-                                try {
-                                    val finalTitle = inputTitle.ifBlank {
-                                        if (inputRawText.length > 20) inputRawText.substring(0, 20) + "..." else inputRawText
+                            if (!isNetworkAvailable(context)) {
+                                showOfflineWarningDialog = true
+                            } else {
+                                isAnalyzingText = true
+                                coroutineScope.launch {
+                                    try {
+                                        val finalTitle = inputTitle.ifBlank {
+                                            if (inputRawText.length > 20) inputRawText.substring(0, 20) + "..." else inputRawText
+                                        }
+                                        val created = repository.createArticle(finalTitle, inputCategory, inputRawText)
+                                        activeArticleId = created.id
+                                        showAddTextBottomSheet = false
+                                        isReaderOpen = true
+                                        Toast.makeText(context, "Bacaan siap dibaca!", Toast.LENGTH_SHORT).show()
+                                    } finally {
+                                        isAnalyzingText = false
                                     }
-                                    val created = repository.createArticle(finalTitle, inputCategory, inputRawText)
-                                    activeArticleId = created.id
-                                    showAddTextBottomSheet = false
-                                    isReaderOpen = true
-                                    Toast.makeText(context, "Bacaan siap dibaca!", Toast.LENGTH_SHORT).show()
-                                } finally {
-                                    isAnalyzingText = false
                                 }
                             }
                         } else {
                             Toast.makeText(context, "Teks Jepang tidak boleh kosong.", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    enabled = !isAnalyzingText,
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryCrimson),
                     shape = RoundedCornerShape(100),
                     modifier = Modifier
@@ -511,5 +582,59 @@ fun KomorebiApp(
                 Spacer(modifier = Modifier.height(24.dp))
             }
         }
+    }
+
+    // Offline Warning Dialog for AI Analysis
+    if (showOfflineWarningDialog) {
+        AlertDialog(
+            onDismissRequest = { showOfflineWarningDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.WifiOff, contentDescription = null, tint = PrimaryCrimson)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Perlu Koneksi Internet", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Text(
+                    text = "Analisis cerdas perdana memerlukan koneksi internet untuk membedah kosakata, furigana, dan terjemahan menggunakan AI. Setelah dianalisis, bacaan dapat dibaca kapan saja secara offline.",
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    color = TextPrimary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showOfflineWarningDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryCrimson)
+                ) {
+                    Text("Nyalakan Internet", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showOfflineWarningDialog = false
+                        isAnalyzingText = true
+                        coroutineScope.launch {
+                            try {
+                                val finalTitle = inputTitle.ifBlank {
+                                    if (inputRawText.length > 20) inputRawText.substring(0, 20) + "..." else inputRawText
+                                }
+                                val created = repository.createArticle(finalTitle, inputCategory, inputRawText)
+                                activeArticleId = created.id
+                                showAddTextBottomSheet = false
+                                isReaderOpen = true
+                                Toast.makeText(context, "Bacaan disimpan dengan analisis lokal.", Toast.LENGTH_SHORT).show()
+                            } finally {
+                                isAnalyzingText = false
+                            }
+                        }
+                    }
+                ) {
+                    Text("Tetap Simpan Offline", color = TextSecondary, fontSize = 12.sp)
+                }
+            }
+        )
     }
 }

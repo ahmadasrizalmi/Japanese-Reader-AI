@@ -129,9 +129,14 @@ export function createApp(customStorage?: StorageEngine): KomorebiApp {
     const now = Date.now();
     const articleId = `art_${now}_${Math.random().toString(36).substring(2, 7)}`;
 
-    // Analyze text to create structured sentences
-    const analysis = analyzeJapaneseTextFallback(body.raw_text);
+    // Check header BYOK key or env key
+    const headerKey = c.req.header('Authorization')?.replace('Bearer ', '');
+    const apiKey = headerKey || c.env?.DEEPSEEK_API_KEY;
 
+    // Analyze text to create structured sentences
+    const analysis = apiKey
+      ? await analyzeWithDeepSeek({ text: body.raw_text }, apiKey)
+      : analyzeJapaneseTextFallback(body.raw_text);
     const sentences: Sentence[] = analysis.sentences.map((s, idx) => ({
       id: `sent_${articleId}_${idx + 1}`,
       article_id: articleId,
