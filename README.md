@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.2.0-802B2B?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Version-1.3.0-802B2B?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Android-Kotlin%20Compose-3DDC84?style=for-the-badge&logo=android" />
   <img src="https://img.shields.io/badge/Database-Room%20SQLite%20(Offline%20First)-003B57?style=for-the-badge&logo=sqlite" />
   <img src="https://img.shields.io/badge/Backend-Cloudflare%20Workers%20%26%20KV-F38020?style=for-the-badge&logo=cloudflare" />
@@ -64,11 +64,11 @@ Berikut adalah antarmuka visual **Komorebi Reader** yang diimplementasikan secar
 
 Binary aplikasi siap instal di perangkat Android:
 
-- **APK File (Rilis)**: [`releases/komorebi-reader-v1.2.0.apk`](releases/komorebi-reader-v1.2.0.apk) (11.5 MB)
-- **AAB File (Play Store Bundle)**: [`releases/komorebi-reader-v1.2.0.aab`](releases/komorebi-reader-v1.2.0.aab) (11.1 MB)
+- **APK File (Rilis)**: [`releases/komorebi-reader-v1.3.0.apk`](releases/komorebi-reader-v1.3.0.apk) (11.5 MB)
+- **AAB File (Play Store Bundle)**: [`releases/komorebi-reader-v1.3.0.aab`](releases/komorebi-reader-v1.3.0.aab) (11.1 MB)
 - **Store Icon (512x512)**: [`releases/icon-512.png`](releases/icon-512.png)
 - **Application ID**: `com.japanesereader.ai`
-- **Version**: `1.2.0` (Version Code: `102`)
+- **Version**: `1.3.0` (Version Code: `103`)
 
 ---
 

@@ -15,8 +15,8 @@ android {
         applicationId = "com.japanesereader.ai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 102
-        versionName = "1.2.0"
+        versionCode = 103
+        versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -107,12 +107,12 @@ tasks.register<Copy>("copyReleaseApk") {
     dependsOn("assembleRelease")
     from("build/outputs/apk/release/app-release.apk")
     into("../../releases")
-    rename { "komorebi-reader-v1.2.0.apk" }
+    rename { "komorebi-reader-v1.3.0.apk" }
 }
 
 tasks.register<Copy>("copyReleaseBundle") {
     dependsOn("bundleRelease")
     from("build/outputs/bundle/release/app-release.aab")
     into("../../releases")
-    rename { "komorebi-reader-v1.2.0.aab" }
+    rename { "komorebi-reader-v1.3.0.aab" }
 }

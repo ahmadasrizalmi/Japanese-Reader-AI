@@ -340,6 +340,7 @@ fun KomorebiApp(
                 ReaderScreen(
                     article = activeArticle,
                     sentences = activeSentences,
+                    kanjiFontStyle = settings?.kanjiFontStyle ?: repository.prefs?.kanjiFontStyle ?: "mincho",
                     currentlyPlayingText = currentlyPlayingText,
                     onToggleAudio = onToggleAudio,
                     onInspectSentence = { sentId ->

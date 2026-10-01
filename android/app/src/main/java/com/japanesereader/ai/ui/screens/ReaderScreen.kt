@@ -26,7 +26,6 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.japanesereader.ai.data.local.entity.ArticleEntity
 import com.japanesereader.ai.data.local.entity.SentenceEntity
-import com.japanesereader.ai.data.remote.TokenDto
 import com.japanesereader.ai.ui.components.RubyToken
 import com.japanesereader.ai.ui.theme.*
 import com.japanesereader.ai.util.JapaneseMorphologyEngine
@@ -41,36 +40,36 @@ data class GrammarBreakdownItem(
 fun ReaderScreen(
     article: ArticleEntity,
     sentences: List<SentenceEntity>,
+    kanjiFontStyle: String = "mincho",
     currentlyPlayingText: String?,
     onToggleAudio: (text: String) -> Unit,
     onInspectSentence: (sentenceId: String) -> Unit,
     onAutoSaveVocabulary: (kanji: String, reading: String, meaning: String, sentenceId: String?) -> Unit,
     onBack: () -> Unit
 ) {
-    // Zoomable font size: 22sp default, pinch or buttons from 18sp to 36sp
+    // Zoomable font size: 22sp default, scalable from 18sp to 36sp
     var currentFontSizeSp by remember { mutableFloatStateOf(22f) }
 
-    // Active selected word token and sentence (Clean initial state: null!)
-    var activeToken by remember { mutableStateOf<RubyToken?>(null) }
-    var activeSentenceId by remember { mutableStateOf<String?>(null) }
+    // Selected word or sentence state (initially null -> 100% clean Zen canvas!)
+    var selectedToken by remember { mutableStateOf<RubyToken?>(null) }
+    var selectedSentence by remember { mutableStateOf<SentenceEntity?>(null) }
     var showBottomSheet by remember { mutableStateOf(false) }
 
-    val readingTimeMin = Math.max(1, article.rawText.length / 100)
-    val kanjiPercent = (article.kanjiRatio * 100).toInt()
+    val activeFontFamily = if (kanjiFontStyle == "gothic") FontFamily.SansSerif else FontFamily.Serif
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(CanvasSurface)
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        // 1. TOP APP BAR
+        // TOP CONTROL BAR: Clean & Minimalist
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 8.dp)
+                .padding(bottom = 6.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -85,12 +84,21 @@ fun ReaderScreen(
                     )
                 }
 
-                Text(
-                    text = "Reader Studio",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
+                Column {
+                    Text(
+                        text = article.title,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "${article.category} • JLPT ${article.difficultyLevel}",
+                        fontSize = 11.sp,
+                        color = PrimaryCrimson,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
 
             // Quick Font Zoom Steppers (A- / A+)
@@ -133,90 +141,92 @@ fun ReaderScreen(
             }
         }
 
-        // 2. ARTICLE HEADER CARD (Restored from UI/UX design: text_selection_translation_pop_up)
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 10.dp)
-        ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(100))
-                            .background(CrimsonSurface)
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        Text(
-                            text = article.category.uppercase(),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = PrimaryCrimson
-                        )
-                    }
+        // Contextual Floating Action Pill (Appears ONLY when text or sentence is selected!)
+        if (selectedSentence != null || selectedToken != null) {
+            val textToAct = selectedToken?.surface ?: selectedSentence?.originalText ?: ""
+            val isAudioPlaying = currentlyPlayingText == textToAct
 
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(100))
-                            .background(HighlightMint)
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        Text(
-                            text = "JLPT ${article.difficultyLevel}",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1B5E20)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = article.title,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary,
-                    lineHeight = 22.sp
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
+            Card(
+                shape = RoundedCornerShape(100),
+                colors = CardDefaults.cardColors(containerColor = TextPrimary),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                modifier = Modifier
+                    .padding(vertical = 4.dp)
+                    .align(Alignment.CenterHorizontally)
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
-                    Text(
-                        text = "$readingTimeMin menit baca",
-                        fontSize = 11.sp,
-                        color = TextMuted
-                    )
-                    Text("•", fontSize = 11.sp, color = TextMuted)
-                    Text(
-                        text = "$kanjiPercent% Kanji",
-                        fontSize = 11.sp,
-                        color = TextMuted
-                    )
-                    Text("•", fontSize = 11.sp, color = TextMuted)
-                    Text(
-                        text = "Ketuk kata untuk arti",
-                        fontSize = 11.sp,
-                        color = PrimaryCrimson,
-                        fontWeight = FontWeight.SemiBold
+                    // Translate Button
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(100))
+                            .clickable { showBottomSheet = true }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Translate,
+                            contentDescription = "Terjemahkan",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Terjemahkan",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    // Divider
+                    Box(modifier = Modifier.width(1.dp).height(12.dp).background(Color.White.copy(alpha = 0.3f)))
+
+                    // Audio Play/Stop Button
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(100))
+                            .clickable { onToggleAudio(textToAct) }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isAudioPlaying) Icons.Default.Stop else Icons.Default.VolumeUp,
+                            contentDescription = if (isAudioPlaying) "Stop" else "Audio",
+                            tint = if (isAudioPlaying) HighlightYellow else Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (isAudioPlaying) "Hentikan" else "Audio",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isAudioPlaying) HighlightYellow else Color.White
+                        )
+                    }
+
+                    // Close Selection Button
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Batal",
+                        tint = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clickable {
+                                selectedToken = null
+                                selectedSentence = null
+                            }
                     )
                 }
             }
         }
 
-        // 3. EDITORIAL READER CANVAS (Restored layout with Pinch-to-Zoom & Word-by-Word Tap)
+        // 100% ZEN READING CANVAS: No cards, no clutter, no sentence audio bars!
         Card(
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = SurfaceCard),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             modifier = Modifier
@@ -232,11 +242,11 @@ fun ReaderScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(18.dp),
+                    .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 itemsIndexed(sentences, key = { _, s -> s.id }) { sIndex, sent ->
-                    // Parse tokens into real words using tokenizer if payload is empty/fallback
+                    // Tokenize into full lexical words
                     val tokens = remember(sent.furiganaPayload, sent.originalText) {
                         try {
                             val listType = object : TypeToken<List<RubyToken>>() {}.type
@@ -262,15 +272,31 @@ fun ReaderScreen(
                         }
                     }
 
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        // Natural editorial paragraph flow with FlowRow
+                    val isSentenceSelected = selectedSentence?.id == sent.id
+
+                    // Editorial sentence paragraph
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isSentenceSelected && selectedToken == null) HighlightYellow.copy(alpha = 0.45f)
+                                else Color.Transparent
+                            )
+                            .clickable {
+                                selectedSentence = sent
+                                selectedToken = null
+                                onInspectSentence(sent.id)
+                            }
+                            .padding(4.dp)
+                    ) {
                         FlowRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.Start,
                             verticalArrangement = Arrangement.Center
                         ) {
                             tokens.forEach { token ->
-                                val isSelected = activeToken?.surface == token.surface && activeSentenceId == sent.id
+                                val isTokenSelected = selectedToken?.surface == token.surface && selectedSentence?.id == sent.id
                                 val hasReading = !token.reading.isNullOrBlank() && token.reading != token.surface
 
                                 Column(
@@ -280,26 +306,25 @@ fun ReaderScreen(
                                         .padding(horizontal = 2.dp, vertical = 2.dp)
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(
-                                            if (isSelected) PastelPalette[Math.abs(token.surface.hashCode()) % PastelPalette.size]
+                                            if (isTokenSelected) PastelPalette[Math.abs(token.surface.hashCode()) % PastelPalette.size]
                                             else Color.Transparent
                                         )
                                         .clickable {
-                                            activeToken = token
-                                            activeSentenceId = sent.id
-                                            showBottomSheet = true
+                                            selectedToken = token
+                                            selectedSentence = sent
 
-                                            // Auto-save word to database immediately
+                                            // Auto-save word in background
                                             val meaning = token.meaning ?: sent.translatedText
                                             val reading = token.reading ?: token.surface
                                             onAutoSaveVocabulary(token.surface, reading, meaning, sent.id)
 
-                                            // Increment inspection telemetry counter
+                                            // Inspection telemetry
                                             onInspectSentence(sent.id)
                                         }
                                         .padding(horizontal = 3.dp, vertical = 1.dp)
                                 ) {
-                                    // Furigana appears directly above kanji on demand when selected!
-                                    if (isSelected && hasReading && token.reading != null) {
+                                    // Furigana appears only when selected!
+                                    if (isTokenSelected && hasReading && token.reading != null) {
                                         Text(
                                             text = token.reading,
                                             fontSize = (currentFontSizeSp * 0.52f).sp,
@@ -309,72 +334,13 @@ fun ReaderScreen(
                                         )
                                     }
 
-                                    // Full word token (NOT per single character!)
+                                    // Full lexical word
                                     Text(
                                         text = token.surface,
                                         fontSize = currentFontSizeSp.sp,
-                                        fontFamily = FontFamily.Serif,
+                                        fontFamily = activeFontFamily,
                                         color = TextPrimary,
                                         lineHeight = (currentFontSizeSp * 1.55f).sp
-                                    )
-                                }
-                            }
-                        }
-
-                        // Sentence Play Audio bar
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(CanvasSecondary)
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            val isSentencePlaying = currentlyPlayingText == sent.originalText
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable { onToggleAudio(sent.originalText) }
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(28.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isSentencePlaying) PrimaryCrimson else CrimsonSurface),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = if (isSentencePlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
-                                        contentDescription = "Putar Kalimat",
-                                        tint = if (isSentencePlaying) Color.White else PrimaryCrimson,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                                Text(
-                                    text = if (isSentencePlaying) "Sedang diputar... (Klik untuk stop)" else "Dengarkan kalimat ini",
-                                    fontSize = 11.sp,
-                                    color = if (isSentencePlaying) PrimaryCrimson else TextSecondary,
-                                    fontWeight = if (isSentencePlaying) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-
-                            if (sent.needsDeepStudy) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(100))
-                                        .background(CrimsonSurface)
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "Inspeksi: ${sent.inspectionCount}x",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = PrimaryCrimson
                                     )
                                 }
                             }
@@ -385,11 +351,12 @@ fun ReaderScreen(
         }
     }
 
-    // 4. FOCUSED CONTEXTUAL TRANSLATION & GRAMMAR OVERLAY CARD (Restored from text_selection_translation_pop_up design)
-    if (showBottomSheet && activeToken != null) {
-        val token = activeToken!!
-        val sentence = sentences.find { it.id == activeSentenceId }
-        val isPlaying = currentlyPlayingText == token.surface
+    // Modal Bottom Sheet: Word & Grammar Detail (With toggleable Play/Stop Audio)
+    if (showBottomSheet && (selectedToken != null || selectedSentence != null)) {
+        val token = selectedToken
+        val sentence = selectedSentence
+        val surfaceText = token?.surface ?: sentence?.originalText ?: ""
+        val isAudioPlaying = currentlyPlayingText == surfaceText
 
         val grammarList = remember(sentence?.grammarAnalysis) {
             try {
@@ -401,10 +368,7 @@ fun ReaderScreen(
         }
 
         ModalBottomSheet(
-            onDismissRequest = {
-                showBottomSheet = false
-                activeToken = null
-            },
+            onDismissRequest = { showBottomSheet = false },
             containerColor = SurfaceCard,
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         ) {
@@ -413,7 +377,7 @@ fun ReaderScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 6.dp)
             ) {
-                // Header of the Card: Selected Term + Furigana + Phonetics + Pronounce Toggle Action
+                // Header: Selected Word + Reading
                 Row(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
@@ -422,23 +386,23 @@ fun ReaderScreen(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = token.surface,
-                                fontSize = 30.sp,
+                                text = surfaceText,
+                                fontSize = if (surfaceText.length <= 6) 28.sp else 20.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Serif,
+                                fontFamily = activeFontFamily,
                                 color = PrimaryCrimson
                             )
-                            if (!token.reading.isNullOrBlank() && token.reading != token.surface) {
+                            if (token != null && !token.reading.isNullOrBlank() && token.reading != token.surface) {
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = token.reading,
-                                    fontSize = 17.sp,
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextSecondary
                                 )
                             }
                         }
-                        if (!token.romaji.isNullOrBlank()) {
+                        if (token != null && !token.romaji.isNullOrBlank()) {
                             Text(
                                 text = token.romaji,
                                 fontSize = 12.sp,
@@ -447,18 +411,18 @@ fun ReaderScreen(
                         }
                     }
 
-                    // Native Audio Sound Button: Tap to Play, Tap again to STOP!
+                    // Audio Button: Tap to Play, Tap again to STOP!
                     IconButton(
-                        onClick = { onToggleAudio(token.surface) },
+                        onClick = { onToggleAudio(surfaceText) },
                         modifier = Modifier
                             .size(48.dp)
                             .clip(CircleShape)
-                            .background(if (isPlaying) PrimaryCrimson else CrimsonSurface)
+                            .background(if (isAudioPlaying) PrimaryCrimson else CrimsonSurface)
                     ) {
                         Icon(
-                            imageVector = if (isPlaying) Icons.Default.Stop else Icons.Default.VolumeUp,
-                            contentDescription = if (isPlaying) "Hentikan Suara" else "Putar Pelafalan",
-                            tint = if (isPlaying) Color.White else PrimaryCrimson,
+                            imageVector = if (isAudioPlaying) Icons.Default.Stop else Icons.Default.VolumeUp,
+                            contentDescription = if (isAudioPlaying) "Hentikan Suara" else "Putar Pelafalan",
+                            tint = if (isAudioPlaying) Color.White else PrimaryCrimson,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -466,7 +430,7 @@ fun ReaderScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Lexical & Meaning Tile
+                // Meaning Tile
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -480,7 +444,7 @@ fun ReaderScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("ARTI UTAMA (INDONESIAN)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                            Text("ARTI KONTEKS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TextMuted)
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(100))
@@ -492,15 +456,15 @@ fun ReaderScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = token.meaning ?: sentence?.translatedText ?: "Kosakata terpilih",
+                            text = token?.meaning ?: sentence?.translatedText ?: "Terjemahan",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
-                        if (sentence != null) {
+                        if (sentence != null && token != null) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Konteks Kalimat: \"${sentence.translatedText}\"",
+                                text = "Kalimat: \"${sentence.translatedText}\"",
                                 fontSize = 12.sp,
                                 color = TextSecondary,
                                 lineHeight = 16.sp
@@ -509,11 +473,11 @@ fun ReaderScreen(
                     }
                 }
 
-                // Grammar Breakdown Block
+                // Grammar breakdown (if present)
                 if (grammarList.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("ANALISIS TATA BAHASA & POLA KALIMAT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = PrimaryCrimson)
+                        Text("BEDAH TATA BAHASA & POLA KALIMAT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = PrimaryCrimson)
                         grammarList.forEach { g ->
                             Box(
                                 modifier = Modifier
@@ -531,10 +495,10 @@ fun ReaderScreen(
                     }
                 }
 
-                // Kanji Deconstruction Detail Tile
-                if (token.surface.any { JapaneseMorphologyEngine.isKanji(it) }) {
+                // Kanji Deconstruction
+                if (surfaceText.any { JapaneseMorphologyEngine.isKanji(it) }) {
                     Spacer(modifier = Modifier.height(10.dp))
-                    val firstKanji = token.surface.first { JapaneseMorphologyEngine.isKanji(it) }.toString()
+                    val firstKanji = surfaceText.first { JapaneseMorphologyEngine.isKanji(it) }.toString()
 
                     Box(
                         modifier = Modifier
@@ -555,7 +519,7 @@ fun ReaderScreen(
                                     text = firstKanji,
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Serif,
+                                    fontFamily = activeFontFamily,
                                     color = PrimaryCrimson
                                 )
                             }

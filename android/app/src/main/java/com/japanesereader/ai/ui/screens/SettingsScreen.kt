@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -293,7 +294,102 @@ fun SettingsScreen(
             }
         }
 
-        // 3. AUDIO & NEURAL TTS
+        // 3. GAYA HURUF KANJI (FONT STYLE)
+        Card(
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.FontDownload, contentDescription = "Font", tint = PrimaryCrimson, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("GAYA HURUF KANJI (FONT STYLE)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                }
+
+                Text("Pilih Tipografi Membaca", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    // Mincho Option
+                    val isMincho = fontStyle == "mincho"
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isMincho) CrimsonSurface else CanvasSecondary)
+                            .clickable {
+                                fontStyle = "mincho"
+                                prefs.kanjiFontStyle = "mincho"
+                                onUpdateSettings(currentSettings.copy(kanjiFontStyle = "mincho"))
+                            }
+                            .padding(12.dp)
+                    ) {
+                        Column {
+                            Row(
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "明朝体",
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Serif,
+                                    color = if (isMincho) PrimaryCrimson else TextPrimary
+                                )
+                                if (isMincho) {
+                                    Icon(imageVector = Icons.Default.CheckCircle, contentDescription = "Dipilih", tint = PrimaryCrimson, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text("Mincho (Serif Novel)", fontSize = 10.sp, color = TextSecondary)
+                        }
+                    }
+
+                    // Gothic Option
+                    val isGothic = fontStyle == "gothic"
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isGothic) CrimsonSurface else CanvasSecondary)
+                            .clickable {
+                                fontStyle = "gothic"
+                                prefs.kanjiFontStyle = "gothic"
+                                onUpdateSettings(currentSettings.copy(kanjiFontStyle = "gothic"))
+                            }
+                            .padding(12.dp)
+                    ) {
+                        Column {
+                            Row(
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "ゴシック",
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.SansSerif,
+                                    color = if (isGothic) PrimaryCrimson else TextPrimary
+                                )
+                                if (isGothic) {
+                                    Icon(imageVector = Icons.Default.CheckCircle, contentDescription = "Dipilih", tint = PrimaryCrimson, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text("Gothic (Clean Sans)", fontSize = 10.sp, color = TextSecondary)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. AUDIO & NEURAL TTS
         Card(
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = SurfaceCard),
