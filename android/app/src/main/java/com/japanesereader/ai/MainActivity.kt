@@ -36,16 +36,15 @@ import com.japanesereader.ai.ui.screens.*
 import com.japanesereader.ai.ui.theme.*
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import androidx.lifecycle.lifecycleScope
+import com.japanesereader.ai.media.PiperAudioManager
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private lateinit var database: KomorebiDatabase
     private lateinit var prefs: PreferencesManager
     private lateinit var repository: KomorebiRepository
-    private var tts: TextToSpeech? = null
-
-    // State for currently playing text
-    val currentlyPlayingText = mutableStateOf<String?>(null)
+    private lateinit var piperAudioManager: PiperAudioManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,37 +52,24 @@ class MainActivity : ComponentActivity() {
         prefs = PreferencesManager(applicationContext)
         database = KomorebiDatabase.getInstance(applicationContext)
         repository = KomorebiRepository(database, prefs)
-
-        tts = TextToSpeech(applicationContext) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                tts?.language = Locale.JAPANESE
-                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {}
-                    override fun onDone(utteranceId: String?) {
-                        currentlyPlayingText.value = null
-                    }
-                    override fun onError(utteranceId: String?) {
-                        currentlyPlayingText.value = null
-                    }
-                })
-            }
-        }
+        piperAudioManager = PiperAudioManager(applicationContext)
 
         setContent {
             KomorebiTheme {
+                val currentlyPlaying by piperAudioManager.currentlyPlayingText.collectAsState()
+
                 KomorebiApp(
                     repository = repository,
-                    currentlyPlayingText = currentlyPlayingText.value,
-                    onToggleAudio = { text ->
-                        if (currentlyPlayingText.value == text) {
-                            tts?.stop()
-                            currentlyPlayingText.value = null
-                        } else {
-                            tts?.stop()
-                            currentlyPlayingText.value = text
-                            val speed = repository.prefs?.ttsSpeed ?: 1.0f
-                            tts?.setSpeechRate(speed)
-                            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "utt_${System.currentTimeMillis()}")
+                    currentlyPlayingText = currentlyPlaying,
+                    onToggleAudio = { text, sentenceId ->
+                        val speed = repository.prefs?.ttsSpeed ?: 1.0f
+                        lifecycleScope.launch {
+                            if (sentenceId != null) {
+                                repository.recordAudioPlay(sentenceId)
+                            }
+                            // Attempt Piper TTS streaming from Cloudflare R2
+                            val ttsDto = repository.apiClient.synthesizeTts(text, speed)
+                            piperAudioManager.playAudio(text, speed, ttsDto?.url)
                         }
                     }
                 )
@@ -93,8 +79,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        tts?.stop()
-        tts?.shutdown()
+        piperAudioManager.release()
     }
 }
 
@@ -103,7 +88,7 @@ class MainActivity : ComponentActivity() {
 fun KomorebiApp(
     repository: KomorebiRepository,
     currentlyPlayingText: String?,
-    onToggleAudio: (text: String) -> Unit
+    onToggleAudio: (text: String, sentenceId: String?) -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -348,9 +333,9 @@ fun KomorebiApp(
                             repository.inspectSentence(sentId)
                         }
                     },
-                    onAutoSaveVocabulary = { kanji, reading, meaning, sentId ->
+                    onAutoSaveVocabulary = { kanji, reading, meaning, pos, jlpt, sentId ->
                         coroutineScope.launch {
-                            repository.addVocabulary(kanji, reading, meaning, "noun", "N4", sentId)
+                            repository.addVocabulary(kanji, reading, meaning, pos, jlpt, sentId)
                         }
                     },
                     onBack = { isReaderOpen = false }
@@ -390,7 +375,7 @@ fun KomorebiApp(
                                 articles = articles,
                                 vocabularies = vocabularies,
                                 currentlyPlayingText = currentlyPlayingText,
-                                onToggleAudio = onToggleAudio,
+                                onToggleAudio = { text -> onToggleAudio(text, null) },
                                 onUpdateVocabulary = { vocab ->
                                     coroutineScope.launch {
                                         repository.updateVocabulary(vocab)
@@ -419,7 +404,7 @@ fun KomorebiApp(
                                     }
                                 },
                                 onPlayAudioPreview = { text ->
-                                    onToggleAudio(text)
+                                    onToggleAudio(text, null)
                                 }
                             )
                         }

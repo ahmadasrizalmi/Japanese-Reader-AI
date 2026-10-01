@@ -15,8 +15,8 @@ android {
         applicationId = "com.japanesereader.ai"
         minSdk = 26
         targetSdk = 35
-        versionCode = 103
-        versionName = "1.3.0"
+        versionCode = 104
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -96,6 +96,10 @@ dependencies {
     // JSON Parsing
     implementation("com.google.code.gson:gson:2.10.1")
 
+
+    // Media3 ExoPlayer for Piper Audio Streaming
+    implementation("androidx.media3:media3-exoplayer:1.3.1")
+    implementation("androidx.media3:media3-common:1.3.1")
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
@@ -107,12 +111,12 @@ tasks.register<Copy>("copyReleaseApk") {
     dependsOn("assembleRelease")
     from("build/outputs/apk/release/app-release.apk")
     into("../../releases")
-    rename { "komorebi-reader-v1.3.0.apk" }
+    rename { "komorebi-reader-v1.4.0.apk" }
 }
 
 tasks.register<Copy>("copyReleaseBundle") {
     dependsOn("bundleRelease")
     from("build/outputs/bundle/release/app-release.aab")
     into("../../releases")
-    rename { "komorebi-reader-v1.3.0.aab" }
+    rename { "komorebi-reader-v1.4.0.aab" }
 }

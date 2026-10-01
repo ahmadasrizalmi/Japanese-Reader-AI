@@ -58,6 +58,12 @@ data class SyncResponseDto(
     val timestamp: Long
 )
 
+data class TtsResponseDto(
+    val url: String,
+    val format: String = "audio/wav",
+    val cached: Boolean = false
+)
+
 class KomorebiApiClient(
     private var baseUrl: String = "https://komorebi-reader-api.hannabi3108.workers.dev"
 ) {
@@ -131,6 +137,40 @@ class KomorebiApiClient(
             if (conn.responseCode in 200..299) {
                 BufferedReader(InputStreamReader(conn.inputStream)).use {
                     return@withContext gson.fromJson(it.readText(), InspectResponseDto::class.java)
+                }
+            }
+            null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun synthesizeTts(
+        text: String,
+        speed: Float = 1.0f,
+        voiceModel: String = "ja_JP-hira-medium"
+    ): TtsResponseDto? = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = URL("$baseUrl/api/v1/tts")
+            val conn = (endpoint.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json")
+                doOutput = true
+                connectTimeout = 4000
+                readTimeout = 5000
+            }
+
+            val payload = mapOf(
+                "text" to text,
+                "speed" to speed,
+                "voice_model" to voiceModel
+            )
+            OutputStreamWriter(conn.outputStream).use { it.write(gson.toJson(payload)) }
+
+            if (conn.responseCode in 200..299) {
+                BufferedReader(InputStreamReader(conn.inputStream)).use {
+                    return@withContext gson.fromJson(it.readText(), TtsResponseDto::class.java)
                 }
             }
             null

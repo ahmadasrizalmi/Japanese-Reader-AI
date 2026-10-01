@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.japanesereader.ai.data.local.entity.VocabularyEntity
 import com.japanesereader.ai.ui.theme.*
+import com.japanesereader.ai.util.SrsEngine
 
 @Composable
 fun VocabularyScreen(
@@ -271,7 +272,12 @@ fun VocabularyScreen(
                     ) {
                         Button(
                             onClick = {
-                                onUpdateVocabulary(v.copy(reviewCount = v.reviewCount + 1, masteryStatus = 0))
+                                val srs = SrsEngine.calculateNextReview(v.reviewCount, quality = 1)
+                                onUpdateVocabulary(v.copy(
+                                    masteryStatus = srs.masteryStatus,
+                                    reviewCount = srs.reviewCount,
+                                    nextReviewAt = srs.nextReviewAt
+                                ))
                                 reviewVocab = null
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = CanvasSecondary, contentColor = TextPrimary),
@@ -282,7 +288,12 @@ fun VocabularyScreen(
 
                         Button(
                             onClick = {
-                                onUpdateVocabulary(v.copy(reviewCount = v.reviewCount + 1, masteryStatus = 1))
+                                val srs = SrsEngine.calculateNextReview(v.reviewCount, quality = 3)
+                                onUpdateVocabulary(v.copy(
+                                    masteryStatus = srs.masteryStatus,
+                                    reviewCount = srs.reviewCount,
+                                    nextReviewAt = srs.nextReviewAt
+                                ))
                                 reviewVocab = null
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = CrimsonSurface, contentColor = PrimaryCrimson),
@@ -293,7 +304,12 @@ fun VocabularyScreen(
 
                         Button(
                             onClick = {
-                                onUpdateVocabulary(v.copy(reviewCount = v.reviewCount + 1, masteryStatus = 2))
+                                val srs = SrsEngine.calculateNextReview(v.reviewCount, quality = 5)
+                                onUpdateVocabulary(v.copy(
+                                    masteryStatus = srs.masteryStatus,
+                                    reviewCount = srs.reviewCount,
+                                    nextReviewAt = srs.nextReviewAt
+                                ))
                                 reviewVocab = null
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = PrimaryCrimson),

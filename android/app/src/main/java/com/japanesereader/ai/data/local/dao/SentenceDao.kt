@@ -27,6 +27,9 @@ interface SentenceDao {
     @Query("UPDATE sentences SET inspection_count = inspection_count + 1, needs_deep_study = CASE WHEN inspection_count + 1 >= 3 THEN 1 ELSE 0 END, updated_at = :now WHERE id = :id")
     suspend fun incrementInspectionCount(id: String, now: Long = System.currentTimeMillis())
 
+    @Query("UPDATE sentences SET audio_play_count = audio_play_count + 1, updated_at = :now WHERE id = :id")
+    suspend fun incrementAudioPlayCount(id: String, now: Long = System.currentTimeMillis())
+
     @Query("DELETE FROM sentences WHERE article_id = :articleId")
     suspend fun deleteSentencesByArticleId(articleId: String)
 }

@@ -27,6 +27,7 @@ abstract class KomorebiDatabase : RoomDatabase() {
     abstract fun sentenceDao(): SentenceDao
     abstract fun vocabularyDao(): VocabularyDao
     abstract fun userSettingsDao(): UserSettingsDao
+    abstract fun studyLogDao(): StudyLogDao
 
     companion object {
         @Volatile

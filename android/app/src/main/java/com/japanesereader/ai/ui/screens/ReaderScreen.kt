@@ -2,7 +2,6 @@ package com.japanesereader.ai.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -10,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,7 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -42,18 +41,22 @@ fun ReaderScreen(
     sentences: List<SentenceEntity>,
     kanjiFontStyle: String = "mincho",
     currentlyPlayingText: String?,
-    onToggleAudio: (text: String) -> Unit,
+    onToggleAudio: (text: String, sentenceId: String?) -> Unit,
     onInspectSentence: (sentenceId: String) -> Unit,
-    onAutoSaveVocabulary: (kanji: String, reading: String, meaning: String, sentenceId: String?) -> Unit,
+    onAutoSaveVocabulary: (kanji: String, reading: String, meaning: String, pos: String, jlpt: String, sentenceId: String?) -> Unit,
     onBack: () -> Unit
 ) {
     // Zoomable font size: 22sp default, scalable from 18sp to 36sp
     var currentFontSizeSp by remember { mutableFloatStateOf(22f) }
 
-    // Selected word or sentence state (initially null -> 100% clean Zen canvas!)
+    // Selected word or sentence state (initially null -> 100% clean Zen canvas)
     var selectedToken by remember { mutableStateOf<RubyToken?>(null) }
     var selectedSentence by remember { mutableStateOf<SentenceEntity?>(null) }
     var showBottomSheet by remember { mutableStateOf(false) }
+
+    // Persistent revealed furigana map for Tap-to-Reveal:
+    // Key: "${sentenceId}_${token.surface}_$tokenIndex"
+    val revealedWordKeys = remember { mutableStateMapOf<String, Boolean>() }
 
     val activeFontFamily = if (kanjiFontStyle == "gothic") FontFamily.SansSerif else FontFamily.Serif
 
@@ -141,9 +144,13 @@ fun ReaderScreen(
             }
         }
 
-        // Contextual Floating Action Pill (Appears ONLY when text or sentence is selected!)
+        // Contextual Floating Action Pill (Appears when text or sentence is selected)
         if (selectedSentence != null || selectedToken != null) {
-            val textToAct = selectedToken?.surface ?: selectedSentence?.originalText ?: ""
+            val isSentenceMode = selectedSentence != null && selectedToken == null
+            val activeSent = selectedSentence
+            val activeTok = selectedToken
+            val textToAct = if (isSentenceMode) activeSent?.originalText ?: "" else activeTok?.surface ?: ""
+            val sentenceIdForAudio = activeSent?.id
             val isAudioPlaying = currentlyPlayingText == textToAct
 
             Card(
@@ -156,10 +163,38 @@ fun ReaderScreen(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
-                    // Translate Button
+                    // Mode Switcher: [Pilih Kalimat] or [Pilih Kata]
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(100))
+                            .background(if (isSentenceMode) HighlightYellow else CrimsonSurface)
+                            .clickable {
+                                if (isSentenceMode) {
+                                    if (activeTok != null) {
+                                        selectedToken = activeTok
+                                    }
+                                } else {
+                                    // Switch to sentence mode
+                                    selectedToken = null
+                                }
+                            }
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = if (isSentenceMode) "Kalimat Utuh" else "Pilih Kalimat",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSentenceMode) TextPrimary else PrimaryCrimson
+                        )
+                    }
+
+                    // Divider
+                    Box(modifier = Modifier.width(1.dp).height(12.dp).background(Color.White.copy(alpha = 0.3f)))
+
+                    // Translate / Detail Button
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -169,13 +204,13 @@ fun ReaderScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Translate,
-                            contentDescription = "Terjemahkan",
+                            contentDescription = "Detail",
                             tint = Color.White,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "Terjemahkan",
+                            text = "Detail",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -190,11 +225,11 @@ fun ReaderScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .clip(RoundedCornerShape(100))
-                            .clickable { onToggleAudio(textToAct) }
+                            .clickable { onToggleAudio(textToAct, sentenceIdForAudio) }
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Icon(
-                            imageVector = if (isAudioPlaying) Icons.Default.Stop else Icons.Default.VolumeUp,
+                            imageVector = if (isAudioPlaying) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
                             contentDescription = if (isAudioPlaying) "Stop" else "Audio",
                             tint = if (isAudioPlaying) HighlightYellow else Color.White,
                             modifier = Modifier.size(16.dp)
@@ -224,7 +259,7 @@ fun ReaderScreen(
             }
         }
 
-        // 100% ZEN READING CANVAS: No cards, no clutter, no sentence audio bars!
+        // 100% ZEN READING CANVAS: Responsive, tactile, non-blocking touch targets
         Card(
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = SurfaceCard),
@@ -232,12 +267,6 @@ fun ReaderScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, _, zoom, _ ->
-                        val newSize = currentFontSizeSp * zoom
-                        currentFontSizeSp = newSize.coerceIn(18f, 36f)
-                    }
-                }
         ) {
             LazyColumn(
                 modifier = Modifier
@@ -273,31 +302,56 @@ fun ReaderScreen(
                     }
 
                     val isSentenceSelected = selectedSentence?.id == sent.id
+                    val isOnlySentenceActive = isSentenceSelected && selectedToken == null
 
-                    // Editorial sentence paragraph
-                    Box(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(14.dp))
                             .background(
-                                if (isSentenceSelected && selectedToken == null) HighlightYellow.copy(alpha = 0.45f)
+                                if (isOnlySentenceActive) HighlightYellow.copy(alpha = 0.45f)
+                                else if (isSentenceSelected) HighlightYellow.copy(alpha = 0.15f)
                                 else Color.Transparent
                             )
-                            .clickable {
-                                selectedSentence = sent
-                                selectedToken = null
-                                onInspectSentence(sent.id)
-                            }
-                            .padding(4.dp)
+                            .padding(6.dp)
                     ) {
+                        // Attention tracker badge if sentence needs deep study (C_inspect >= 3)
+                        if (sent.needsDeepStudy) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .padding(bottom = 4.dp)
+                                    .clip(RoundedCornerShape(100))
+                                    .background(CrimsonSurface)
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Flag,
+                                    contentDescription = null,
+                                    tint = PrimaryCrimson,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Perlu pengulangan intensif (${sent.inspectionCount}x dibongkar)",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = PrimaryCrimson
+                                )
+                            }
+                        }
+
+                        // Tokens FlowRow
                         FlowRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.Start,
                             verticalArrangement = Arrangement.Center
                         ) {
-                            tokens.forEach { token ->
+                            tokens.forEachIndexed { tIndex, token ->
+                                val wordKey = "${sent.id}_${token.surface}_$tIndex"
                                 val isTokenSelected = selectedToken?.surface == token.surface && selectedSentence?.id == sent.id
                                 val hasReading = !token.reading.isNullOrBlank() && token.reading != token.surface
+                                val isRevealed = (revealedWordKeys[wordKey] == true) || isTokenSelected
 
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -310,28 +364,41 @@ fun ReaderScreen(
                                             else Color.Transparent
                                         )
                                         .clickable {
+                                            // Toggle furigana reveal on tap
+                                            revealedWordKeys[wordKey] = !(revealedWordKeys[wordKey] ?: false)
                                             selectedToken = token
                                             selectedSentence = sent
 
-                                            // Auto-save word in background
-                                            val meaning = token.meaning ?: sent.translatedText
-                                            val reading = token.reading ?: token.surface
-                                            onAutoSaveVocabulary(token.surface, reading, meaning, sent.id)
+                                            // Auto-save word in background if it's a content word (skip punctuation and bare particles)
+                                            if (token.pos !in listOf("punct", "particle") &&
+                                                token.surface !in listOf("、", "。", "！", "？", "は", "が", "の", "に", "で", "を", "と", "へ")
+                                            ) {
+                                                val meaning = token.meaning ?: sent.translatedText
+                                                val reading = token.reading ?: token.surface
+                                                val pos = token.pos ?: "noun"
+                                                val jlpt = token.jlpt ?: "N5"
+                                                onAutoSaveVocabulary(token.surface, reading, meaning, pos, jlpt, sent.id)
+                                            }
 
                                             // Inspection telemetry
                                             onInspectSentence(sent.id)
                                         }
                                         .padding(horizontal = 3.dp, vertical = 1.dp)
                                 ) {
-                                    // Furigana appears only when selected!
-                                    if (isTokenSelected && hasReading && token.reading != null) {
-                                        Text(
-                                            text = token.reading,
-                                            fontSize = (currentFontSizeSp * 0.52f).sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = PrimaryCrimson,
-                                            lineHeight = (currentFontSizeSp * 0.6f).sp
-                                        )
+                                    // Furigana appears on tap!
+                                    if (hasReading && token.reading != null) {
+                                        if (isRevealed) {
+                                            Text(
+                                                text = token.reading,
+                                                fontSize = (currentFontSizeSp * 0.52f).sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = PrimaryCrimson,
+                                                lineHeight = (currentFontSizeSp * 0.6f).sp
+                                            )
+                                        } else {
+                                            // Reserve vertical space so baseline NEVER jumps when furigana appears
+                                            Spacer(modifier = Modifier.height((currentFontSizeSp * 0.6f).dp))
+                                        }
                                     }
 
                                     // Full lexical word
@@ -341,6 +408,36 @@ fun ReaderScreen(
                                         fontFamily = activeFontFamily,
                                         color = TextPrimary,
                                         lineHeight = (currentFontSizeSp * 1.55f).sp
+                                    )
+                                }
+                            }
+                        }
+
+                        // Direct Contextual Translation Box right on canvas when sentence is selected!
+                        if (isSentenceSelected && sent.translatedText.isNotBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(CanvasSecondary)
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "TERJEMAHAN KALIMAT",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PrimaryCrimson,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = sent.translatedText,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = TextPrimary,
+                                        lineHeight = 18.sp
                                     )
                                 }
                             }
@@ -355,7 +452,9 @@ fun ReaderScreen(
     if (showBottomSheet && (selectedToken != null || selectedSentence != null)) {
         val token = selectedToken
         val sentence = selectedSentence
-        val surfaceText = token?.surface ?: sentence?.originalText ?: ""
+        val isSentenceMode = sentence != null && token == null
+        val surfaceText = if (isSentenceMode) sentence?.originalText ?: "" else token?.surface ?: ""
+        val sentenceIdForAudio = sentence?.id
         val isAudioPlaying = currentlyPlayingText == surfaceText
 
         val grammarList = remember(sentence?.grammarAnalysis) {
@@ -377,13 +476,13 @@ fun ReaderScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 6.dp)
             ) {
-                // Header: Selected Word + Reading
+                // Header: Selected Word + Reading + JLPT/POS Badges
                 Row(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = surfaceText,
@@ -409,18 +508,55 @@ fun ReaderScreen(
                                 color = TextMuted
                             )
                         }
+
+                        // Badges for JLPT and POS
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            if (token != null && !token.jlpt.isNullOrBlank() && token.jlpt != "-") {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(100))
+                                        .background(CrimsonSurface)
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "JLPT ${token.jlpt}",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PrimaryCrimson
+                                    )
+                                }
+                            }
+                            if (token != null && !token.pos.isNullOrBlank()) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(100))
+                                        .background(CanvasSecondary)
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = token.pos.uppercase(),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     // Audio Button: Tap to Play, Tap again to STOP!
                     IconButton(
-                        onClick = { onToggleAudio(surfaceText) },
+                        onClick = { onToggleAudio(surfaceText, sentenceIdForAudio) },
                         modifier = Modifier
                             .size(48.dp)
                             .clip(CircleShape)
                             .background(if (isAudioPlaying) PrimaryCrimson else CrimsonSurface)
                     ) {
                         Icon(
-                            imageVector = if (isAudioPlaying) Icons.Default.Stop else Icons.Default.VolumeUp,
+                            imageVector = if (isAudioPlaying) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
                             contentDescription = if (isAudioPlaying) "Hentikan Suara" else "Putar Pelafalan",
                             tint = if (isAudioPlaying) Color.White else PrimaryCrimson,
                             modifier = Modifier.size(24.dp)

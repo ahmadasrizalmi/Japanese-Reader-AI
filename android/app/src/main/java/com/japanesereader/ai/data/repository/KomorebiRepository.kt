@@ -39,7 +39,8 @@ class KomorebiRepository(
         val now = System.currentTimeMillis()
         val artId = "art_${now}"
 
-        val apiKey = database.userSettingsDao().getUserSettings("usr_default")?.deepseekApiKey
+        val apiKey = prefs?.deepseekApiKey?.ifBlank { null }
+            ?: database.userSettingsDao().getUserSettings("usr_default")?.deepseekApiKey
         val analysis = apiClient.analyzeText(rawText, apiKey)
 
         val difficulty = analysis.difficulty_level
@@ -108,6 +109,10 @@ class KomorebiRepository(
         sentenceId: String? = null
     ): VocabularyEntity = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
+        val sentence = sentenceId?.let { database.sentenceDao().getSentenceById(it) }
+        val needsDeepStudy = sentence?.needsDeepStudy ?: false
+        val nextReview = com.japanesereader.ai.util.SrsEngine.initialInterval(needsDeepStudy, now)
+
         val vocab = VocabularyEntity(
             id = "voc_${now}",
             userId = "usr_default",
@@ -119,7 +124,7 @@ class KomorebiRepository(
             jlptLevel = jlpt,
             masteryStatus = 0,
             reviewCount = 0,
-            nextReviewAt = now + 86400000L,
+            nextReviewAt = nextReview,
             createdAt = now,
             updatedAt = now
         )
@@ -135,9 +140,30 @@ class KomorebiRepository(
         database.vocabularyDao().deleteVocabularyById(id)
     }
 
+    suspend fun recordStudyLog(sentenceId: String, actionType: String) = withContext(Dispatchers.IO) {
+        try {
+            val log = StudyLogEntity(
+                id = "log_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(6)}",
+                userId = "usr_default",
+                sentenceId = sentenceId,
+                actionType = actionType,
+                timestamp = System.currentTimeMillis()
+            )
+            database.studyLogDao().insertLog(log)
+        } catch (e: Exception) {
+            // Ignore telemetry failure
+        }
+    }
+
     suspend fun inspectSentence(sentenceId: String) = withContext(Dispatchers.IO) {
         database.sentenceDao().incrementInspectionCount(sentenceId)
+        recordStudyLog(sentenceId, "INSPECT")
         apiClient.inspectSentence(sentenceId)
+    }
+
+    suspend fun recordAudioPlay(sentenceId: String) = withContext(Dispatchers.IO) {
+        database.sentenceDao().incrementAudioPlayCount(sentenceId)
+        recordStudyLog(sentenceId, "AUDIO_PLAY")
     }
 
     suspend fun updateSettings(settings: UserSettingsEntity) = withContext(Dispatchers.IO) {
