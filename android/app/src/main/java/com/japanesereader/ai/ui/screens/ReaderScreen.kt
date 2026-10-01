@@ -77,6 +77,12 @@ fun ReaderScreen(
     val activeFontFamily = if (kanjiFontStyle == "gothic") FontFamily.SansSerif else FontFamily.Serif
     val listState = rememberLazyListState()
 
+    // Keep gesture callbacks fresh: pointerInput(Unit) runs once and would otherwise
+    // capture stale lambda instances across recompositions.
+    val latestOnNext = rememberUpdatedState(onNextArticle)
+    val latestOnPrevious = rememberUpdatedState(onPreviousArticle)
+    val latestOnBack = rememberUpdatedState(onBack)
+
     // 100% Full-Width Canvas Root with horizontal swipe navigation
     Box(
         modifier = Modifier
@@ -89,10 +95,11 @@ fun ReaderScreen(
                     onDragEnd = {
                         if (totalDragX < -150f) {
                             // Swiped Left -> Next Article
-                            onNextArticle?.invoke()
+                            latestOnNext.value?.invoke()
                         } else if (totalDragX > 150f) {
                             // Swiped Right -> Previous Article or Back
-                            if (onPreviousArticle != null) onPreviousArticle.invoke() else onBack()
+                            val prev = latestOnPrevious.value
+                            if (prev != null) prev.invoke() else latestOnBack.value.invoke()
                         }
                     },
                     onHorizontalDrag = { _, dragAmount ->
@@ -214,31 +221,6 @@ fun ReaderScreen(
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
                 ) {
-                    // Attention tracker badge if sentence needs deep study
-                    if (sent.needsDeepStudy) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .padding(bottom = 4.dp)
-                                .clip(RoundedCornerShape(100))
-                                .background(CrimsonSurface)
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Flag,
-                                contentDescription = null,
-                                tint = PrimaryCrimson,
-                                modifier = Modifier.size(11.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Perlu pengulangan intensif (${sent.inspectionCount}x dibongkar)",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = PrimaryCrimson
-                            )
-                        }
-                    }
 
                     Row(
                         verticalAlignment = Alignment.Top,
@@ -320,7 +302,8 @@ fun ReaderScreen(
                                                 color = PrimaryCrimson,
                                                 lineHeight = (currentFontSizeSp * 0.55f).sp
                                             )
-                                        } else if (isFuriganaEnabled) {
+                                        } else {
+                                            // Reserve vertical space so baseline NEVER jumps when ruby appears
                                             Spacer(modifier = Modifier.height((currentFontSizeSp * 0.55f).dp))
                                         }
                                     }
@@ -368,7 +351,7 @@ fun ReaderScreen(
                         .fillMaxWidth()
                         .padding(top = 28.dp, bottom = 90.dp)
                 ) {
-                    // Green solid CTA button: MARK AS FINISHED
+                    // Green solid CTA button: finish reading (returns to collection)
                     Button(
                         onClick = {
                             onBack()
@@ -382,7 +365,7 @@ fun ReaderScreen(
                         Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = Color.White)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "MARK AS FINISHED",
+                            text = "Selesai Membaca",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,

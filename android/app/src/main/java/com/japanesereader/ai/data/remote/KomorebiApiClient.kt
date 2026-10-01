@@ -87,10 +87,11 @@ class KomorebiApiClient(
                 requestMethod = "POST"
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Accept", "application/json")
-                setRequestProperty("User-Agent", "KomorebiReader/1.5.0 (Android; Mobile)")
+                setRequestProperty("User-Agent", "KomorebiReader/1.5.1 (Android; Mobile)")
                 doOutput = true
-                connectTimeout = 6000
-                readTimeout = 8000
+                connectTimeout = 10000
+                // 35s timeout for complete DeepSeek sentence and token parsing
+                readTimeout = 35000
             }
 
             val requestBody = mutableMapOf<String, Any>("text" to text)
@@ -106,7 +107,17 @@ class KomorebiApiClient(
             if (conn.responseCode in 200..299) {
                 BufferedReader(InputStreamReader(conn.inputStream)).use { reader ->
                     val response = reader.readText()
-                    val parsed = gson.fromJson(response, AnalyzeResponseDto::class.java)
+                    var cleanJson = response.trim()
+                    if (cleanJson.startsWith("```")) {
+                        cleanJson = cleanJson.replace(Regex("^```(?:json)?\\s*", RegexOption.IGNORE_CASE), "")
+                            .replace(Regex("\\s*```$"), "").trim()
+                    }
+                    val firstBrace = cleanJson.indexOf('{')
+                    val lastBrace = cleanJson.lastIndexOf('}')
+                    if (firstBrace != -1 && lastBrace != -1) {
+                        cleanJson = cleanJson.substring(firstBrace, lastBrace + 1)
+                    }
+                    val parsed = gson.fromJson(cleanJson, AnalyzeResponseDto::class.java)
                     if (parsed != null && parsed.sentences.isNotEmpty()) {
                         return@withContext parsed
                     }

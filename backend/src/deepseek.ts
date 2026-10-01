@@ -80,11 +80,21 @@ export async function analyzeWithDeepSeek(
       return analyzeJapaneseTextFallback(req.text);
     }
 
-    const parsed = JSON.parse(contentStr) as AnalyzeResponse;
+    let cleanJson = contentStr.trim();
+    // Robustly strip markdown fences or extraneous text around JSON
+    if (cleanJson.startsWith('```')) {
+      cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    }
+    const firstBrace = cleanJson.indexOf('{');
+    const lastBrace = cleanJson.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      cleanJson = cleanJson.substring(firstBrace, lastBrace + 1);
+    }
+
+    const parsed = JSON.parse(cleanJson) as AnalyzeResponse;
     if (parsed.sentences && Array.isArray(parsed.sentences) && parsed.sentences.length > 0) {
       return parsed;
     }
-
     return analyzeJapaneseTextFallback(req.text);
   } catch (err) {
     console.error('DeepSeek request exception, using fallback analyzer:', err);

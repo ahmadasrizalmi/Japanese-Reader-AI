@@ -30,6 +30,15 @@ import com.japanesereader.ai.data.local.entity.VocabularyEntity
 import com.japanesereader.ai.ui.theme.*
 import com.japanesereader.ai.util.SrsEngine
 
+private fun matchesFilter(filter: String, vocab: VocabularyEntity): Boolean {
+    return when (filter) {
+        "Perlu Dipelajari" -> vocab.masteryStatus == 0 || vocab.reviewCount == 0
+        "Sedang Diulang" -> vocab.masteryStatus == 1
+        "Dikuasai" -> vocab.masteryStatus == 2
+        else -> true
+    }
+}
+
 @Composable
 fun FlashcardScreen(
     vocabularies: List<VocabularyEntity>,
@@ -185,7 +194,8 @@ fun FlashcardScreen(
                 }
             }
         } else {
-            val currentVocab = filteredList[currentIndex]
+            val safeIndex = currentIndex.coerceIn(0, filteredList.lastIndex)
+            val currentVocab = filteredList[safeIndex]
             val isAudioPlaying = currentlyPlayingText == currentVocab.kanji
 
             // Find Context Sentence (Original sentence from the article!)
@@ -445,9 +455,10 @@ fun FlashcardScreen(
                                         updatedAt = System.currentTimeMillis()
                                     )
                                     onUpdateVocabulary(updated)
-                                    // Advance to next card or flip
                                     isFlipped = false
-                                    if (currentIndex < filteredList.size - 1) {
+                                    // If the card stays in this filter, advance; if it was
+                                    // removed (mastery changed), the next card shifts into place.
+                                    if (matchesFilter(selectedFilter, updated) && currentIndex < filteredList.size - 1) {
                                         currentIndex++
                                     }
                                 },
@@ -480,9 +491,10 @@ fun FlashcardScreen(
                                         updatedAt = System.currentTimeMillis()
                                     )
                                     onUpdateVocabulary(updated)
-                                    // Advance to next card or flip
                                     isFlipped = false
-                                    if (currentIndex < filteredList.size - 1) {
+                                    // If the card stays in this filter, advance; if it was
+                                    // removed (mastery changed), the next card shifts into place.
+                                    if (matchesFilter(selectedFilter, updated) && currentIndex < filteredList.size - 1) {
                                         currentIndex++
                                     }
                                 },

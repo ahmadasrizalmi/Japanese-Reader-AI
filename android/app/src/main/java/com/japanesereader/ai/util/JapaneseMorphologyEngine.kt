@@ -35,7 +35,20 @@ object JapaneseMorphologyEngine {
         "ざ" to "za", "じ" to "ji", "ず" to "zu", "ぜ" to "ze", "ぞ" to "zo",
         "だ" to "da", "ぢ" to "ji", "づ" to "zu", "で" to "de", "ど" to "do",
         "ば" to "ba", "び" to "bi", "ぶ" to "bu", "べ" to "be", "ぼ" to "bo",
-        "ぱ" to "pa", "ぴ" to "pi", "ぷ" to "pu", "ぺ" to "pe", "ぽ" to "po"
+        "ぱ" to "pa", "ぴ" to "pi", "ぷ" to "pu", "ぺ" to "pe", "ぽ" to "po",
+        "ぁ" to "a", "ぃ" to "i", "ぅ" to "u", "ぇ" to "e", "ぉ" to "o",
+        "ゃ" to "ya", "ゅ" to "yu", "ょ" to "yo", "ゔ" to "vu",
+        "きゃ" to "kya", "きゅ" to "kyu", "きょ" to "kyo",
+        "しゃ" to "sha", "しゅ" to "shu", "しょ" to "sho",
+        "ちゃ" to "cha", "ちゅ" to "chu", "ちょ" to "cho",
+        "にゃ" to "nya", "にゅ" to "nyu", "にょ" to "nyo",
+        "ひゃ" to "hya", "ひゅ" to "hyu", "ひょ" to "hyo",
+        "みゃ" to "mya", "みゅ" to "myu", "みょ" to "myo",
+        "りゃ" to "rya", "りゅ" to "ryu", "りょ" to "ryo",
+        "ぎゃ" to "gya", "ぎゅ" to "gyu", "ぎょ" to "gyo",
+        "じゃ" to "ja", "じゅ" to "ju", "じょ" to "jo",
+        "びゃ" to "bya", "びゅ" to "byu", "びょ" to "byo",
+        "ぴゃ" to "pya", "ぴゅ" to "pyu", "ぴょ" to "pyo"
     )
 
     private val KANJI_READINGS = mapOf(
@@ -273,7 +286,7 @@ object JapaneseMorphologyEngine {
     }
 
     fun katakanaToHiragana(c: Char): Char {
-        return if (c in '\u30A1'..'\u30F6') (c.code - 0x60).toChar() else c
+        return if (c in '\u30A1'..'\u30FA') (c.code - 0x60).toChar() else c
     }
 
     fun kanaToRomaji(kana: String): String {
@@ -296,7 +309,7 @@ object JapaneseMorphologyEngine {
                     continue
                 }
             }
-            sb.append(KANA_ROMAJI[hiraChar.toString()] ?: c.toString())
+            sb.append(KANA_ROMAJI[hiraChar.toString()] ?: hiraChar.toString())
             idx++
         }
         return sb.toString()
@@ -589,7 +602,17 @@ object JapaneseMorphologyEngine {
                     val message = firstChoice?.get("message") as? Map<*, *>
                     val content = message?.get("content") as? String
                     if (!content.isNullOrBlank()) {
-                        return@withContext gson.fromJson(content, AnalyzeResponseDto::class.java)
+                        var clean = content.trim()
+                        if (clean.startsWith("```")) {
+                            clean = clean.replace(Regex("^```(?:json)?\\s*", RegexOption.IGNORE_CASE), "")
+                                .replace(Regex("\\s*```$"), "").trim()
+                        }
+                        val firstBrace = clean.indexOf('{')
+                        val lastBrace = clean.lastIndexOf('}')
+                        if (firstBrace != -1 && lastBrace != -1) {
+                            clean = clean.substring(firstBrace, lastBrace + 1)
+                        }
+                        return@withContext gson.fromJson(clean, AnalyzeResponseDto::class.java)
                     }
                 }
             }

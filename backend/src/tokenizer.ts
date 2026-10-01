@@ -248,19 +248,73 @@ export function tokenizeSentence(sentence: string): Token[] {
       continue;
     }
 
-    // Single character tokenization fallback
-    const singleChar = sentence[index];
-    const isCharKanji = isKanji(singleChar);
-    const reading = singleChar;
-    const romaji = kanaToRomaji(singleChar);
+    const ch = sentence[index];
+    const cp = ch.charCodeAt(0);
+    const isKatakana = (cp >= 0x30A0 && cp <= 0x30FF) || ch === 'ー';
+    const isCharKanji = (cp >= 0x4E00 && cp <= 0x9FAF) || (cp >= 0x3400 && cp <= 0x4DBF);
 
+    if (isKatakana) {
+      let end = index;
+      while (end < sentence.length && (((sentence.charCodeAt(end) >= 0x30A0 && sentence.charCodeAt(end) <= 0x30FF)) || sentence[end] === 'ー')) {
+        end++;
+      }
+      const word = sentence.substring(index, end);
+      tokens.push({
+        surface: word,
+        reading: word,
+        romaji: kanaToRomaji(word),
+        pos: 'noun',
+        meaning: word,
+        jlpt: 'N4'
+      });
+      index = end;
+      continue;
+    }
+
+    if (isCharKanji) {
+      let end = index;
+      while (end < sentence.length && ((sentence.charCodeAt(end) >= 0x4E00 && sentence.charCodeAt(end) <= 0x9FAF) || (sentence.charCodeAt(end) >= 0x3400 && sentence.charCodeAt(end) <= 0x4DBF))) {
+        end++;
+      }
+      const word = sentence.substring(index, end);
+      tokens.push({
+        surface: word,
+        reading: word,
+        romaji: word,
+        pos: 'noun',
+        meaning: `Kosakata: ${word}`,
+        jlpt: 'N3'
+      });
+      index = end;
+      continue;
+    }
+
+    if (/[a-zA-Z0-9]/.test(ch)) {
+      let end = index;
+      while (end < sentence.length && /[a-zA-Z0-9]/.test(sentence[end])) {
+        end++;
+      }
+      const word = sentence.substring(index, end);
+      tokens.push({
+        surface: word,
+        reading: word,
+        romaji: word,
+        pos: 'other',
+        meaning: word,
+        jlpt: '-'
+      });
+      index = end;
+      continue;
+    }
+
+    const singleChar = sentence[index];
     tokens.push({
       surface: singleChar,
-      reading: reading,
-      romaji: romaji,
-      pos: isCharKanji ? 'noun' : (/[\u3040-\u309f]/.test(singleChar) ? 'kana' : 'other'),
-      meaning: isCharKanji ? 'Karakter kanji' : '',
-      jlpt: isCharKanji ? 'N4' : '-'
+      reading: singleChar,
+      romaji: kanaToRomaji(singleChar),
+      pos: /[\u3040-\u309f]/.test(singleChar) ? 'particle' : 'punct',
+      meaning: '',
+      jlpt: '-'
     });
     index++;
   }

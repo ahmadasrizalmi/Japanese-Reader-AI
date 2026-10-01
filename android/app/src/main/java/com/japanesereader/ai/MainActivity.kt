@@ -9,6 +9,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -57,6 +59,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Bind hardware volume keys to media audio stream to prevent unexpected volume popups
+        volumeControlStream = android.media.AudioManager.STREAM_MUSIC
 
         prefs = PreferencesManager(applicationContext)
         database = KomorebiDatabase.getInstance(applicationContext)
@@ -369,7 +373,6 @@ fun KomorebiApp(
                 .background(CanvasSurface)
         ) {
             if (isReaderOpen && activeArticle != null) {
-                val currentArtIndex = articles.indexOfFirst { it.id == activeArticleId }
                 // Full Reader Studio Screen
                 ReaderScreen(
                     article = activeArticle,
@@ -387,12 +390,21 @@ fun KomorebiApp(
                             repository.addVocabulary(kanji, reading, meaning, pos, jlpt, sentId)
                         }
                     },
-                    onNextArticle = if (currentArtIndex in 0 until articles.size - 1) {
-                        { activeArticleId = articles[currentArtIndex + 1].id }
-                    } else null,
-                    onPreviousArticle = if (currentArtIndex > 0) {
-                        { activeArticleId = articles[currentArtIndex - 1].id }
-                    } else null,
+                    onNextArticle = {
+                        val idx = articles.indexOfFirst { it.id == activeArticleId }
+                        if (idx in 0 until articles.size - 1) {
+                            activeArticleId = articles[idx + 1].id
+                        }
+                    },
+                    onPreviousArticle = {
+                        val idx = articles.indexOfFirst { it.id == activeArticleId }
+                        if (idx > 0) {
+                            activeArticleId = articles[idx - 1].id
+                        } else {
+                            // No previous article -> close reader back to collection
+                            isReaderOpen = false
+                        }
+                    },
                     onShowVocabList = {
                         isReaderOpen = false
                         coroutineScope.launch { pagerState.animateScrollToPage(1) }
@@ -490,15 +502,22 @@ fun KomorebiApp(
     // Thumb-reach Bottom Sheet Modal for Adding Text
     if (showAddTextBottomSheet) {
         ModalBottomSheet(
-            onDismissRequest = { showAddTextBottomSheet = false },
+            onDismissRequest = {
+                showAddTextBottomSheet = false
+                inputTitle = ""
+                inputRawText = ""
+                inputCategory = "Percakapan"
+            },
             containerColor = SurfaceCard,
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
                     .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Row(
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -532,6 +551,7 @@ fun KomorebiApp(
                     label = { Text("Teks Bahasa Jepang") },
                     placeholder = { Text("Tempel atau ketik teks Jepang di sini...") },
                     minLines = 4,
+                    maxLines = 8,
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -552,6 +572,9 @@ fun KomorebiApp(
                                         activeArticleId = created.id
                                         showAddTextBottomSheet = false
                                         isReaderOpen = true
+                                        inputTitle = ""
+                                        inputRawText = ""
+                                        inputCategory = "Percakapan"
                                         Toast.makeText(context, "Bacaan siap dibaca!", Toast.LENGTH_SHORT).show()
                                     } finally {
                                         isAnalyzingText = false
@@ -625,6 +648,9 @@ fun KomorebiApp(
                                 activeArticleId = created.id
                                 showAddTextBottomSheet = false
                                 isReaderOpen = true
+                                inputTitle = ""
+                                inputRawText = ""
+                                inputCategory = "Percakapan"
                                 Toast.makeText(context, "Bacaan disimpan dengan analisis lokal.", Toast.LENGTH_SHORT).show()
                             } finally {
                                 isAnalyzingText = false

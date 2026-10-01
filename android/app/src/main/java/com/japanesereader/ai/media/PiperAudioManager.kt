@@ -19,6 +19,11 @@ class PiperAudioManager(private val context: Context) {
 
     private val exoPlayer: ExoPlayer by lazy {
         ExoPlayer.Builder(context).build().apply {
+            val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
+                .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_SPEECH)
+                .build()
+            setAudioAttributes(audioAttributes, true)
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) {
@@ -121,8 +126,11 @@ class PiperAudioManager(private val context: Context) {
     private fun playWithNativeTts(text: String, speed: Float) {
         try {
             nativeTts?.setSpeechRate(speed)
+            val params = android.os.Bundle().apply {
+                putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_MUSIC)
+            }
             val utteranceId = "piper_${System.currentTimeMillis()}"
-            val res = nativeTts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            val res = nativeTts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
             if (res == TextToSpeech.ERROR) {
                 _isPlaying.value = false
                 _currentlyPlayingText.value = null
