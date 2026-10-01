@@ -5,7 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -17,6 +19,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.japanesereader.ai.data.local.PreferencesManager
@@ -31,6 +36,7 @@ import java.net.URL
 @Composable
 fun SettingsScreen(
     settings: UserSettingsEntity?,
+    totalVocabCount: Int = 0,
     syncStatus: String,
     onUpdateSettings: (UserSettingsEntity) -> Unit,
     onSyncNow: () -> Unit,
@@ -49,15 +55,20 @@ fun SettingsScreen(
         deepseekApiKey = prefs.deepseekApiKey.ifBlank { null }
     )
 
+    // Dynamic user profile state (editable by user, not hardcoded!)
+    var userName by remember { mutableStateOf(prefs.userName) }
+    var showEditNameDialog by remember { mutableStateOf(false) }
+
     var tone by remember { mutableStateOf(currentSettings.deepseekTone) }
     var speed by remember { mutableFloatStateOf(currentSettings.ttsSpeed) }
     var furiMode by remember { mutableStateOf(currentSettings.furiganaMode) }
     var fontStyle by remember { mutableStateOf(currentSettings.kanjiFontStyle) }
 
-    // Persistent API key input state
+    // API key input state with masking & eye toggle
     var apiKey by remember {
         mutableStateOf(prefs.deepseekApiKey.ifBlank { currentSettings.deepseekApiKey ?: "" })
     }
+    var isKeyVisible by remember { mutableStateOf(false) }
     var backendUrl by remember { mutableStateOf(prefs.backendUrl) }
     var isTestingKey by remember { mutableStateOf(false) }
     var isTestingBackend by remember { mutableStateOf(false) }
@@ -71,9 +82,9 @@ fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Profile Banner
+        // 1. DYNAMIC USER PROFILE BANNER (No hardcoded Tanaka Aoi!)
         Card(
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = SurfaceCard),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             modifier = Modifier.fillMaxWidth()
@@ -83,42 +94,74 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(RoundedCornerShape(100))
-                        .background(CrimsonSurface),
-                    contentAlignment = Alignment.Center
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Text("読", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = PrimaryCrimson)
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(CircleShape)
+                            .background(CrimsonSurface),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("読", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = PrimaryCrimson)
+                    }
+
+                    Column {
+                        Text(
+                            text = userName,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(100))
+                                    .background(HighlightMint)
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "Pembelajar Mandiri",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1B5E20)
+                                )
+                            }
+                            Text(
+                                text = "$totalVocabCount kata tersimpan",
+                                fontSize = 11.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
                 }
 
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Aoi Tanaka (田中 葵)", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(100))
-                                .background(CrimsonSurface)
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text("N3 CHALLENGER", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = PrimaryCrimson)
-                        }
-                        Text("🔥 42 Hari Beruntun", fontSize = 11.sp, color = SecondaryVermilion, fontWeight = FontWeight.SemiBold)
-                    }
+                IconButton(
+                    onClick = { showEditNameDialog = true },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit Nama",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
         }
 
-        // Section 1: DeepSeek API (BYOK)
+        // 2. API DEEPSEEK (BYOK) - MASKED & ENCRYPTED
         Card(
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = SurfaceCard),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             modifier = Modifier.fillMaxWidth()
@@ -134,21 +177,45 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("API DEEPSEEK (BYOK)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
                     }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(100))
-                            .background(HighlightMint)
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Text("TERENKRIPSI", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = PrimaryCrimson)
+                    if (apiKey.isNotBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(100))
+                                .background(HighlightMint)
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("TERENKRIPSI & AKTIF", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1B5E20))
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(100))
+                                .background(CanvasSecondary)
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("MODE OFFLINE", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                        }
                     }
                 }
 
+                // Password / masked input with visibility toggle
                 OutlinedTextField(
                     value = apiKey,
                     onValueChange = { apiKey = it },
                     placeholder = { Text("sk-deepseek-...", fontSize = 12.sp) },
                     singleLine = true,
+                    visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
+                            Icon(
+                                imageVector = if (isKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (isKeyVisible) "Sembunyikan" else "Tampilkan",
+                                tint = TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    },
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -162,7 +229,8 @@ fun SettingsScreen(
                             val trimmed = apiKey.trim()
                             prefs.deepseekApiKey = trimmed
                             onUpdateSettings(currentSettings.copy(deepseekApiKey = trimmed.ifBlank { null }))
-                            Toast.makeText(context, "Kunci API DeepSeek berhasil disimpan!", Toast.LENGTH_SHORT).show()
+                            isKeyVisible = false // Auto-mask on save
+                            Toast.makeText(context, "Kunci API DeepSeek tersimpan secara terenkripsi!", Toast.LENGTH_SHORT).show()
 
                             if (trimmed.isNotBlank()) {
                                 isTestingKey = true
@@ -178,9 +246,9 @@ fun SettingsScreen(
                                             conn.responseCode in 200..299
                                         }
                                         if (testOk) {
-                                            Toast.makeText(context, "✅ Kunci DeepSeek valid & aktif!", Toast.LENGTH_LONG).show()
+                                            Toast.makeText(context, "✅ Kunci DeepSeek valid dan terverifikasi!", Toast.LENGTH_LONG).show()
                                         } else {
-                                            Toast.makeText(context, "⚠️ Kunci disimpan, periksa koneksi/saldo DeepSeek.", Toast.LENGTH_LONG).show()
+                                            Toast.makeText(context, "⚠️ Kunci disimpan (Status: Offline / Gagal verifikasi saldo).", Toast.LENGTH_LONG).show()
                                         }
                                     } catch (e: Exception) {
                                         Toast.makeText(context, "Kunci tersimpan secara lokal.", Toast.LENGTH_SHORT).show()
@@ -198,7 +266,7 @@ fun SettingsScreen(
                             CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(6.dp))
                         }
-                        Text("Simpan Kunci", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(if (apiKey.isBlank()) "Simpan Kunci" else "Ubah Kunci", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
 
                     if (apiKey.isNotBlank()) {
@@ -207,7 +275,7 @@ fun SettingsScreen(
                                 apiKey = ""
                                 prefs.deepseekApiKey = ""
                                 onUpdateSettings(currentSettings.copy(deepseekApiKey = null))
-                                Toast.makeText(context, "Kunci dihapus (Memakai parser lokal)", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Kunci dihapus (Beralih ke mesin luring bawaan)", Toast.LENGTH_SHORT).show()
                             },
                             shape = RoundedCornerShape(100)
                         ) {
@@ -217,7 +285,7 @@ fun SettingsScreen(
                 }
 
                 Text(
-                    text = "Aplikasi dapat mem-parsing bahasa Jepang secara cerdas memakai AI DeepSeek (jika kunci diisi) maupun mesin morfologi deterministik bawaan luring.",
+                    text = "Kunci Anda disimpan dengan enkripsi lokal. Jika kosong, sistem otomatis memakai mesin morfologi bawaan secara offline.",
                     fontSize = 11.sp,
                     color = TextMuted,
                     lineHeight = 15.sp
@@ -225,89 +293,9 @@ fun SettingsScreen(
             }
         }
 
-        // Section 2: Display & Furigana
+        // 3. AUDIO & NEURAL TTS
         Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.Default.MenuBook, contentDescription = "Buku", tint = PrimaryCrimson, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("TAMPILAN BACA & FURIGANA", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
-                }
-
-                Text("Mode Furigana", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    listOf("always" to "Selalu Aktif", "tap" to "Ketuk Tampil", "off" to "Nonaktif").forEach { (valKey, label) ->
-                        val isSelected = furiMode == valKey
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(if (isSelected) PrimaryCrimson else CanvasSecondary)
-                                .clickable {
-                                    furiMode = valKey
-                                    prefs.furiganaMode = valKey
-                                    onUpdateSettings(currentSettings.copy(furiganaMode = valKey))
-                                }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = label,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSelected) Color.White else TextSecondary
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text("Gaya Huruf Kanji", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    listOf("mincho" to "明朝体 (Mincho)", "gothic" to "ゴシック (Gothic)").forEach { (valKey, label) ->
-                        val isSelected = fontStyle == valKey
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(if (isSelected) CrimsonSurface else CanvasSecondary)
-                                .clickable {
-                                    fontStyle = valKey
-                                    prefs.kanjiFontStyle = valKey
-                                    onUpdateSettings(currentSettings.copy(kanjiFontStyle = valKey))
-                                }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = label,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSelected) PrimaryCrimson else TextSecondary
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Section 3: Audio & Neural TTS
-        Card(
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = SurfaceCard),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             modifier = Modifier.fillMaxWidth()
@@ -360,9 +348,9 @@ fun SettingsScreen(
             }
         }
 
-        // Section 4: Cloudflare Edge Backend Sync
+        // 4. CLOUDFLARE EDGE BACKEND
         Card(
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = SurfaceCard),
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             modifier = Modifier.fillMaxWidth()
@@ -453,5 +441,42 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+
+    // Dialog for Editing Display Name
+    if (showEditNameDialog) {
+        var tempName by remember { mutableStateOf(userName) }
+        AlertDialog(
+            onDismissRequest = { showEditNameDialog = false },
+            title = { Text("Ubah Nama Tampilan", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = tempName,
+                    onValueChange = { tempName = it },
+                    label = { Text("Nama Anda") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = tempName.trim().ifBlank { "Pembaca Komorebi" }
+                        userName = trimmed
+                        prefs.userName = trimmed
+                        showEditNameDialog = false
+                        Toast.makeText(context, "Nama tampilan berhasil diperbarui!", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryCrimson)
+                ) {
+                    Text("Simpan")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditNameDialog = false }) {
+                    Text("Batal", color = TextMuted)
+                }
+            }
+        )
     }
 }

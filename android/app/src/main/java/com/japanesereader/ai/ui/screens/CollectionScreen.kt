@@ -36,7 +36,9 @@ fun CollectionScreen(
     var searchQuery by remember { mutableStateOf("") }
     var showAddDialog by remember { mutableStateOf(false) }
 
-    val categories = listOf("Semua", "Percakapan", "Buku & Artikel", "Lirik Lagu", "Menu & Tempat")
+    val categories = remember(articles) {
+        listOf("Semua") + articles.map { it.category.trim() }.filter { it.isNotBlank() && !it.equals("Semua", ignoreCase = true) }.distinct()
+    }
 
     val filteredArticles = articles.filter {
         val matchCategory = selectedCategory == "Semua" || it.category.equals(selectedCategory, ignoreCase = true)
@@ -49,34 +51,6 @@ fun CollectionScreen(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // Top Action Deck
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Button(
-                onClick = { showAddDialog = true },
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryCrimson),
-                shape = RoundedCornerShape(100),
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = "Tambah", modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Tambah Catatan", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-
-            OutlinedButton(
-                onClick = { showAddDialog = true },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = PrimaryCrimson),
-                shape = RoundedCornerShape(100)
-            ) {
-                Icon(imageVector = Icons.Default.ContentPaste, contentDescription = "Tempel", modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Tempel", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
 
         // Search Bar
         OutlinedTextField(

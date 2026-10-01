@@ -188,16 +188,17 @@ fun KomorebiApp(
         bottomBar = {
             if (!isReaderOpen) {
                 Surface(
-                    color = CanvasSurface,
-                    shadowElevation = 8.dp,
+                    color = SurfaceCard,
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    shadowElevation = 10.dp,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .navigationBarsPadding()
-                            .height(64.dp)
-                            .padding(horizontal = 8.dp),
+                            .height(68.dp)
+                            .padding(horizontal = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceAround
                     ) {
@@ -212,12 +213,21 @@ fun KomorebiApp(
                                 }
                                 .padding(vertical = 4.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.MenuBook,
-                                contentDescription = "Koleksi",
-                                tint = if (isTab0) PrimaryCrimson else TextMuted,
-                                modifier = Modifier.size(22.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(100))
+                                    .background(if (isTab0) CrimsonSurface else Color.Transparent)
+                                    .padding(horizontal = 16.dp, vertical = 3.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CollectionsBookmark,
+                                    contentDescription = "Koleksi",
+                                    tint = if (isTab0) PrimaryCrimson else TextMuted,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "Koleksi",
                                 fontSize = 10.sp,
@@ -234,7 +244,7 @@ fun KomorebiApp(
                             IconButton(
                                 onClick = { showAddTextBottomSheet = true },
                                 modifier = Modifier
-                                    .size(48.dp)
+                                    .size(52.dp)
                                     .clip(CircleShape)
                                     .background(PrimaryCrimson)
                             ) {
@@ -242,7 +252,7 @@ fun KomorebiApp(
                                     imageVector = Icons.Default.Add,
                                     contentDescription = "Tambah Teks Baru",
                                     tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(26.dp)
                                 )
                             }
                         }
@@ -258,12 +268,21 @@ fun KomorebiApp(
                                 }
                                 .padding(vertical = 4.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.QueryStats,
-                                contentDescription = "Kemajuan",
-                                tint = if (isTab1) PrimaryCrimson else TextMuted,
-                                modifier = Modifier.size(22.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(100))
+                                    .background(if (isTab1) CrimsonSurface else Color.Transparent)
+                                    .padding(horizontal = 16.dp, vertical = 3.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Insights,
+                                    contentDescription = "Kemajuan",
+                                    tint = if (isTab1) PrimaryCrimson else TextMuted,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "Kemajuan",
                                 fontSize = 10.sp,
@@ -283,12 +302,21 @@ fun KomorebiApp(
                                 }
                                 .padding(vertical = 4.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Pengaturan",
-                                tint = if (isTab2) PrimaryCrimson else TextMuted,
-                                modifier = Modifier.size(22.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(100))
+                                    .background(if (isTab2) CrimsonSurface else Color.Transparent)
+                                    .padding(horizontal = 16.dp, vertical = 3.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = "Pengaturan",
+                                    tint = if (isTab2) PrimaryCrimson else TextMuted,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "Pengaturan",
                                 fontSize = 10.sp,
@@ -377,6 +405,7 @@ fun KomorebiApp(
                         2 -> {
                             SettingsScreen(
                                 settings = settings,
+                                totalVocabCount = vocabularies.size,
                                 syncStatus = syncStatus,
                                 onUpdateSettings = { newSettings ->
                                     coroutineScope.launch {
