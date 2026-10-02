@@ -44,7 +44,7 @@ let isFlashcardFlipped: boolean = false;
 let readerFuriganaMode: 'always' | 'tap' | 'off' = 'off';
 let readerTranslateMode: boolean = false;
 let readerShowPillBar: boolean = true;
-let readerFontSizeSp: number = 20;
+let readerFontSizeSp: number = typeof window !== 'undefined' && window.innerWidth >= 768 ? 26 : 20;
 let readerExpandedSentences: Set<string> = new Set();
 let inspectedToken: Token | null = null;
 let inspectedSentence: Sentence | null = null;
@@ -240,15 +240,15 @@ function renderReader(state: AppState): string {
       </div>
 
       <!-- Article Reading Content (Clean, natural zero-space typesetting) -->
-      <div id="reader-article-content" class="max-w-2xl w-full mx-auto px-5 pt-8 pb-32 flex flex-col gap-6 cursor-pointer">
+      <div id="reader-article-content" class="max-w-4xl w-full mx-auto px-6 md:px-12 pt-8 pb-36 flex flex-col gap-8 cursor-pointer">
         <!-- Article Header Metadata -->
         <header class="flex flex-col gap-2 pb-4 border-b border-surface-container/80 cursor-default">
-          <div class="flex items-center gap-2 text-xs font-semibold text-primary">
+          <div class="flex items-center gap-2 text-xs md:text-sm font-semibold text-primary">
             <span>~${estimatedMinutes} menit baca</span>
             <span>•</span>
             <span class="text-text-muted font-normal">${charCount} karakter</span>
           </div>
-          <h1 class="text-2xl sm:text-3xl font-bold text-text-primary ${fontClass} leading-tight tracking-tight">
+          <h1 class="text-2xl sm:text-3xl md:text-4xl font-bold text-text-primary ${fontClass} leading-tight tracking-tight">
             ${article.title}
           </h1>
         </header>
@@ -262,12 +262,12 @@ function renderReader(state: AppState): string {
             return `
                 <div class="flex items-baseline gap-2.5">
                   <!-- Translation trigger icon (Always visible for seamless per-sentence access) -->
-                  <button class="btn-toggle-inline-trans shrink-0 flex items-center justify-center w-6 h-6 rounded-md ${isExpanded ? 'bg-primary text-white shadow-sm' : 'bg-canvas-secondary text-text-secondary hover:text-primary hover:bg-crimson-surface'} text-[11px] font-bold transition-all" data-sent-id="${sent.id}" title="Lihat terjemahan kalimat ini">
+                  <button class="btn-toggle-inline-trans shrink-0 flex items-center justify-center w-7 h-7 md:w-8 md:h-8 rounded-lg ${isExpanded ? 'bg-primary text-white shadow-sm' : 'bg-canvas-secondary text-text-secondary hover:text-primary hover:bg-crimson-surface'} text-xs font-bold transition-all" data-sent-id="${sent.id}" title="Lihat terjemahan kalimat ini">
                     あA
                   </button>
 
                   <!-- Japanese Tokens Row with Zero-space natural typography -->
-                  <div class="japanese-sentence leading-[2.8em] text-text-primary tracking-normal flex-1" style="word-spacing: 0; letter-spacing: 0;">
+                  <div class="japanese-sentence leading-[3.2em] text-text-primary tracking-normal flex-1" style="word-spacing: 0; letter-spacing: 0;">
                     ${(() => {
                       const sentenceTokens = tokens.length > 0 ? tokens : tokenizeSentence(sent.original_text);
                       const isFuriOn = readerFuriganaMode === 'always';
@@ -276,7 +276,7 @@ function renderReader(state: AppState): string {
                         const tokenJson = encodeURIComponent(JSON.stringify(token));
 
                         if (isFuriOn && hasReading) {
-                          return `<ruby class="token-word cursor-pointer hover:bg-highlight-yellow rounded px-0 transition-colors" data-token="${tokenJson}" data-sent-id="${sent.id}">${token.surface}<rt class="text-primary font-semibold text-[10px] select-none">${token.reading}</rt></ruby>`;
+                          return `<ruby class="token-word cursor-pointer hover:bg-highlight-yellow rounded px-0 transition-colors" data-token="${tokenJson}" data-sent-id="${sent.id}">${token.surface}<rt class="text-primary font-semibold text-[0.52em] select-none leading-none">${token.reading}</rt></ruby>`;
                         } else {
                           return `<span class="token-word cursor-pointer hover:bg-highlight-yellow rounded px-0 transition-colors" data-token="${tokenJson}" data-sent-id="${sent.id}">${token.surface}</span>`;
                         }
@@ -287,7 +287,7 @@ function renderReader(state: AppState): string {
 
                 <!-- Smooth Inline Translation directly below the sentence -->
                 ${isExpanded ? `
-                  <div class="sentence-translation font-sans text-xs text-[#6E6262] leading-relaxed pl-8 pt-0.5 transition-all">
+                  <div class="sentence-translation font-sans text-xs sm:text-sm md:text-base text-[#6E6262] leading-relaxed pl-9 md:pl-11 pt-1 transition-all">
                     ${sent.translated_text || 'Sedang menganalisis terjemahan konteks...'}
                   </div>
                 ` : ''}
@@ -1171,13 +1171,13 @@ function attachEvents(state: AppState): void {
 
   getEl('pill-font-minus')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    readerFontSizeSp = Math.max(16, readerFontSizeSp - 2);
+    readerFontSizeSp = Math.max(18, readerFontSizeSp - 2);
     renderApp(store.getState());
   });
 
   getEl('pill-font-plus')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    readerFontSizeSp = Math.min(32, readerFontSizeSp + 2);
+    readerFontSizeSp = Math.min(42, readerFontSizeSp + 2);
     renderApp(store.getState());
   });
 
