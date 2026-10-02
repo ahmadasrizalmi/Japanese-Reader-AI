@@ -157,7 +157,12 @@ function renderKoleksi(state: AppState): string {
                 <div class="flex flex-col gap-2.5">
                   <div class="flex items-center justify-between text-xs">
                     <span class="text-[11px] font-bold text-primary bg-crimson-surface px-2.5 py-0.5 rounded-full">~${estimatedMinutes} mnt • ${charCount} kar</span>
-                    <span class="text-[11px] text-text-muted font-medium">${dateStr}</span>
+                    <div class="flex items-center gap-1">
+                      <span class="text-[11px] text-text-muted font-medium">${dateStr}</span>
+                      <button class="btn-delete-article w-7 h-7 rounded-full flex items-center justify-center text-text-muted hover:text-red-600 hover:bg-red-50 transition-colors ml-1" data-art-id="${art.id}" title="Hapus Bacaan">
+                        <span class="material-symbols-outlined text-[16px]">delete</span>
+                      </button>
+                    </div>
                   </div>
 
                   <h3 class="font-bold text-base text-text-primary group-hover:text-primary transition-colors font-mincho line-clamp-1 leading-snug">
@@ -215,20 +220,23 @@ function renderReader(state: AppState): string {
       </div>
 
       <!-- Top Back Header & Progressive Banner -->
-      <div class="sticky top-0 z-30 bg-surface/90 backdrop-blur-md px-4 py-2.5 flex items-center justify-between border-b border-surface-container/60">
-        <button id="reader-back-btn" class="flex items-center gap-1.5 text-xs font-bold text-text-secondary hover:text-primary transition-colors py-1 px-2.5 rounded-full hover:bg-canvas-secondary">
+      <!-- Top Back Header & Actions -->
+      <div class="sticky top-0 z-30 bg-surface/90 backdrop-blur-md px-4 sm:px-6 py-2.5 flex items-center justify-between border-b border-surface-container/60">
+        <button id="reader-back-btn" class="flex items-center gap-1.5 text-xs font-bold text-text-secondary hover:text-primary transition-colors py-1.5 px-3 rounded-full hover:bg-canvas-secondary">
           <span class="material-symbols-outlined text-[18px]">arrow_back</span>
           <span>Kembali</span>
         </button>
 
         ${prog && prog.articleId === article.id ? `
-          <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full ${prog.isComplete ? 'bg-green-100 text-green-800' : 'bg-crimson-surface text-primary'} text-[11px] font-bold shadow-sm animate-pulse">
+          <div class="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full ${prog.isComplete ? 'bg-green-100 text-green-800' : 'bg-crimson-surface text-primary'} text-[11px] font-bold shadow-sm animate-pulse">
             <span class="material-symbols-outlined text-[14px]">${prog.isComplete ? 'check_circle' : 'sync'}</span>
             <span>${prog.isComplete ? 'Analisis teks lengkap!' : `Menganalisis: bagian ${prog.currentChunk} dari ${prog.totalChunks}...`}</span>
           </div>
-        ` : `
-          <span class="text-[11px] font-medium text-text-muted">Ketuk ruang kosong untuk menu</span>
-        `}
+        ` : ''}
+
+        <button id="reader-delete-btn" class="w-8 h-8 rounded-full flex items-center justify-center text-text-muted hover:text-red-600 hover:bg-red-50 transition-colors" data-art-id="${article.id}" title="Hapus Bacaan Ini">
+          <span class="material-symbols-outlined text-[18px]">delete</span>
+        </button>
       </div>
 
       <!-- Article Reading Content (Clean, natural zero-space typesetting) -->
@@ -289,13 +297,14 @@ function renderReader(state: AppState): string {
         </div>
 
         <!-- End of Article Footer Actions -->
-        <footer class="mt-12 pt-6 border-t border-surface-container flex flex-col gap-3 cursor-default">
-          <button id="reader-finish-btn" class="w-full py-3.5 px-6 rounded-xl bg-[#22C55E] text-white font-bold text-sm shadow-md hover:bg-[#1eb354] active:scale-95 transition-all flex items-center justify-center gap-2">
+        <!-- End of Article Footer Actions (Compact, centered, proportional) -->
+        <footer class="mt-14 pt-8 border-t border-surface-container/60 flex flex-col items-center gap-3 max-w-sm mx-auto w-full cursor-default">
+          <button id="reader-finish-btn" class="w-full py-3 px-6 rounded-full bg-[#22C55E] text-white font-bold text-xs shadow-md hover:bg-[#1eb354] active:scale-95 transition-all flex items-center justify-center gap-2">
             <span class="material-symbols-outlined text-[18px]">check</span>
             <span>Selesai Membaca</span>
           </button>
 
-          <button id="reader-show-words-btn" class="w-full py-3 px-6 rounded-xl border border-surface-container bg-surface-card text-text-secondary font-bold text-xs hover:border-primary/40 active:scale-95 transition-all flex items-center justify-center gap-2">
+          <button id="reader-show-words-btn" class="w-full py-2.5 px-6 rounded-full border border-surface-container bg-surface-card text-text-secondary font-semibold text-xs hover:border-primary/40 hover:text-primary active:scale-95 transition-all flex items-center justify-center gap-2">
             <span>Lihat Kata yang Dicari (Flashcard)</span>
           </button>
         </footer>
@@ -727,8 +736,8 @@ function renderWordInspectionModal(): string {
   const grammarPoints = sentence ? parseGrammarPoints(sentence.grammar_analysis) : [];
 
   return `
-    <div id="word-modal-backdrop" class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end justify-center">
-      <div class="bg-surface-card w-full max-w-lg rounded-t-3xl p-5 shadow-2xl flex flex-col gap-4 max-h-[85vh] overflow-y-auto pb-8">
+    <div id="word-modal-backdrop" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div class="bg-surface-card w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl flex flex-col gap-4 max-h-[88vh] overflow-y-auto pb-8 border border-surface-container">
         <!-- Header: Word, Reading, Audio -->
         <div class="flex items-start justify-between pb-3 border-b border-surface-container">
           <div class="flex flex-col">
@@ -1090,6 +1099,26 @@ function attachEvents(state: AppState): void {
         store.openArticle(artId);
       }
     });
+  });
+  // Delete Article from Collection Card
+  document.querySelectorAll('.btn-delete-article').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const artId = (btn as HTMLElement).dataset.artId;
+      if (artId && confirm('Hapus bahan bacaan ini dari koleksi?')) {
+        store.deleteArticle(artId);
+        renderApp(store.getState());
+      }
+    });
+  });
+
+  // Delete Article from Inside Reader
+  getEl('reader-delete-btn')?.addEventListener('click', () => {
+    const article = store.getState().activeArticle;
+    if (article && confirm(`Hapus "${article.title}" dari koleksi?`)) {
+      store.deleteArticle(article.id);
+      store.setView('koleksi');
+    }
   });
 
   // Reader Back Button
