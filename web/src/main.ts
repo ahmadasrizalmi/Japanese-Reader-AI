@@ -254,12 +254,12 @@ function renderReader(state: AppState): string {
         </header>
 
         <!-- Sentences Flow -->
-        <div class="flex flex-col gap-5 ${fontClass}">
+        <div class="flex flex-col gap-2.5 ${fontClass}">
           ${sentences.map((sent, sIdx) => {
             const tokens = parseTokens(sent.furigana_payload);
             const isExpanded = readerTranslateMode && readerExpandedSentences.has(sent.id);
             return `
-              <div class="sentence-block flex flex-col gap-1 transition-all rounded-xl p-1.5 hover:bg-canvas-secondary/40" data-sent-id="${sent.id}">
+              <div class="sentence-block flex flex-col gap-1 transition-all rounded-lg p-1 hover:bg-canvas-secondary/30" data-sent-id="${sent.id}">
                 <div class="flex items-baseline gap-2.5">
                   <!-- Translation trigger icon (Only visible when translation mode is ON in pill bar!) -->
                   ${readerTranslateMode ? `
@@ -267,9 +267,8 @@ function renderReader(state: AppState): string {
                       あA
                     </button>
                   ` : ''}
-
                   <!-- Japanese Tokens Row with Zero-space natural typography -->
-                  <div class="japanese-sentence leading-[2.2em] text-text-primary tracking-normal flex-1" style="word-spacing: 0; letter-spacing: 0;">
+                  <div class="japanese-sentence leading-[1.7em] text-text-primary tracking-normal flex-1" style="word-spacing: 0; letter-spacing: 0;">
                     ${(() => {
                       const sentenceTokens = tokens.length > 0 ? tokens : tokenizeSentence(sent.original_text);
                       const isFuriOn = readerFuriganaMode === 'always';
@@ -289,7 +288,7 @@ function renderReader(state: AppState): string {
 
                 <!-- Smooth Inline Translation directly below the sentence (only when toggled!) -->
                 ${isExpanded && sent.translated_text ? `
-                  <div class="sentence-translation font-sans text-xs sm:text-sm md:text-base text-[#6E6262] leading-relaxed pl-9 md:pl-11 pt-1 transition-all">
+                  <div class="sentence-translation font-sans text-xs sm:text-sm md:text-base text-[#6E6262] leading-normal pl-9 md:pl-11 pt-0.5 transition-all">
                     ${sent.translated_text}
                   </div>
                 ` : ''}
