@@ -108,51 +108,78 @@ function renderKoleksi(state: AppState): string {
   }
 
   return `
-    <div class="flex flex-col gap-4">
-      <!-- Search Bar -->
-      <div class="relative">
-        <span class="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted text-[18px]">search</span>
-        <input id="collection-search-input" type="text" placeholder="Cari judul atau isi bacaan..." value="${searchQuery}" class="w-full bg-surface-card border border-surface-container rounded-full pl-10 pr-4 py-2.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary shadow-sm">
+    <div class="max-w-6xl w-full mx-auto px-4 sm:px-6 md:px-8 py-4 md:py-6 flex flex-col gap-6">
+      <!-- Header Bar with Search & Filters -->
+      <div class="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+        <!-- Search Input -->
+        <div class="relative flex-1 max-w-xl">
+          <span class="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted text-[20px]">search</span>
+          <input id="collection-search-input" type="text" placeholder="Cari judul, topik, atau kata kanji..." value="${searchQuery}" class="w-full bg-surface-card border border-surface-container rounded-full pl-10 pr-4 py-2.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary shadow-sm">
+        </div>
+
+        <!-- Quick Add Button on Desktop header -->
+        <button id="collection-add-btn" class="hidden md:flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-xs font-bold shadow-md hover:bg-primary-container active:scale-95 transition-all shrink-0">
+          <span class="material-symbols-outlined text-[18px]">add_circle</span>
+          <span>Tambah Teks Baru</span>
+        </button>
       </div>
 
-      <!-- Categories Pills -->
+      <!-- Category Filter Pills with Item Counts (Matching Wireframe 2) -->
       <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-        ${categories.map(c => `
-          <button class="collection-cat-pill px-3.5 py-1.5 rounded-full text-xs font-semibold shadow-sm transition-all shrink-0 ${selectedCategory === c ? 'bg-primary text-white' : 'bg-surface-card border border-surface-container text-text-secondary hover:border-primary/50'}" data-category="${c}">
-            ${c}
-          </button>
-        `).join('')}
-      </div>
-
-      <!-- Articles Grid/List -->
-      <div class="flex flex-col gap-3">
-        ${list.length === 0 ? `
-          <div class="py-16 flex flex-col items-center justify-center text-center text-text-muted bg-surface-card rounded-2xl border border-surface-container p-6">
-            <span class="material-symbols-outlined text-4xl mb-2 text-primary/40">menu_book</span>
-            <p class="text-sm font-semibold">Tidak ada artikel di kategori ini.</p>
-            <p class="text-xs text-text-muted mt-1">Klik tombol (+) di bawah untuk menambahkan bacaan baru.</p>
-          </div>
-        ` : list.map(art => {
-          const charCount = art.raw_text.length;
-          const estimatedMinutes = Math.max(1, Math.round(charCount / 300));
+        ${categories.map(c => {
+          const count = c === 'Semua' ? state.articles.length : state.articles.filter(a => a.category === c).length;
           return `
-            <div class="article-card group cursor-pointer bg-surface-card border border-surface-container rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-primary/30 transition-all flex flex-col gap-2.5" data-art-id="${art.id}">
-              <div class="flex items-center justify-between text-xs">
-                <span class="text-[11px] font-semibold text-primary">~${estimatedMinutes} menit baca • ${charCount} karakter</span>
-                <span class="text-[10px] text-text-muted font-medium">${new Date(art.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}</span>
-              </div>
-
-              <h3 class="font-bold text-base text-text-primary group-hover:text-primary transition-colors font-mincho line-clamp-1 leading-snug">
-                ${art.title}
-              </h3>
-
-              <p class="text-xs text-text-secondary font-mincho line-clamp-2 leading-relaxed">
-                ${art.raw_text}
-              </p>
-            </div>
+            <button class="collection-cat-pill px-4 py-1.5 rounded-full text-xs font-semibold shadow-sm transition-all shrink-0 flex items-center gap-1.5 ${selectedCategory === c ? 'bg-primary text-white shadow-md' : 'bg-surface-card border border-surface-container text-text-secondary hover:border-primary/40'}" data-category="${c}">
+              <span>${c}</span>
+              <span class="text-[10px] px-1.5 py-0.2 rounded-full ${selectedCategory === c ? 'bg-white/20 text-white font-bold' : 'bg-canvas-secondary text-text-muted'}">${count}</span>
+            </button>
           `;
         }).join('')}
       </div>
+
+      <!-- 3-Column Responsive Grid matching Wireframe 2 -->
+      ${list.length === 0 ? `
+        <div class="py-20 flex flex-col items-center justify-center text-center text-text-muted bg-surface-card rounded-3xl border border-surface-container p-8 shadow-sm">
+          <span class="material-symbols-outlined text-5xl mb-3 text-primary/40">menu_book</span>
+          <h3 class="text-base font-bold text-text-primary">Tidak ada artikel di kategori ini</h3>
+          <p class="text-xs text-text-muted mt-1.5 max-w-sm leading-relaxed">
+            Klik tombol "Tambah Teks Baru" untuk menempel teks atau mengunggah file subtitle/novel Jepang.
+          </p>
+        </div>
+      ` : `
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          ${list.map(art => {
+            const charCount = art.raw_text.length;
+            const estimatedMinutes = Math.max(1, Math.round(charCount / 300));
+            const dateStr = new Date(art.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+            return `
+              <div class="article-card group cursor-pointer bg-surface-card border border-surface-container hover:border-primary/40 rounded-2xl p-5 shadow-sm hover:shadow-lg transition-all flex flex-col justify-between gap-3.5 h-full" data-art-id="${art.id}">
+                <div class="flex flex-col gap-2.5">
+                  <div class="flex items-center justify-between text-xs">
+                    <span class="text-[11px] font-bold text-primary bg-crimson-surface px-2.5 py-0.5 rounded-full">~${estimatedMinutes} mnt • ${charCount} kar</span>
+                    <span class="text-[11px] text-text-muted font-medium">${dateStr}</span>
+                  </div>
+
+                  <h3 class="font-bold text-base text-text-primary group-hover:text-primary transition-colors font-mincho line-clamp-1 leading-snug">
+                    ${art.title}
+                  </h3>
+
+                  <div class="h-px bg-surface-container/60 w-full"></div>
+
+                  <p class="text-xs text-text-secondary font-mincho line-clamp-4 leading-relaxed">
+                    ${art.raw_text}
+                  </p>
+                </div>
+
+                <div class="flex items-center justify-between pt-2.5 border-t border-surface-container/40 text-xs text-primary font-bold">
+                  <span>Buka Bacaan</span>
+                  <span class="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `}
     </div>
   `;
 }
@@ -583,33 +610,108 @@ function renderSettings(state: AppState): string {
 }
 
 // -------------------------------------------------------------
-// 7. RENDER ADD TEXT MODAL (SCROLLABLE & NON-BLOCKING)
+// 7. RENDER ADD TEXT MODAL (DESKTOP CENTERED WITH FILE DROPZONE)
 // -------------------------------------------------------------
+function cleanSubtitleText(raw: string): string {
+  return raw
+    .replace(/\r\n/g, '\n')
+    .replace(/WEBVTT[^\n]*\n+/i, '')
+    .replace(/NOTE[^\n]*\n+/g, '')
+    .replace(/^\d+\n/gm, '')
+    .replace(/\d\d:\d\d:\d\d[,\.]\d\d\d --> \d\d:\d\d:\d\d[,\.]\d\d\d[^\n]*\n/g, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\{[^\}]+\}/g, '')
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0)
+    .join('\n');
+}
+
+function handleAttachedFile(file: File): void {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    let content = (e.target?.result as string) || '';
+    const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+    if (file.name.endsWith('.srt') || file.name.endsWith('.vtt')) {
+      content = cleanSubtitleText(content);
+    }
+    const titleEl = getEl<HTMLInputElement>('modal-title-input');
+    const textEl = getEl<HTMLTextAreaElement>('modal-text-input');
+    const charEl = getEl('modal-char-count');
+    if (titleEl && !titleEl.value.trim()) {
+      titleEl.value = nameWithoutExt;
+    }
+    if (textEl) {
+      textEl.value = content;
+      if (charEl) charEl.innerText = `${content.length} karakter terdeteksi`;
+    }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
 function renderAddTextModal(): string {
   return `
-    <div id="modal-backdrop" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div class="bg-surface-card w-full max-w-lg rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
-        <div class="flex items-center justify-between pb-2 border-b border-surface-container">
-          <h3 class="font-bold text-base text-text-primary">Tambah Bahan Bacaan Baru</h3>
-          <button id="modal-close-btn" class="w-8 h-8 rounded-full flex items-center justify-center text-text-muted hover:text-primary">
+    <div id="modal-backdrop" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-surface-card w-full max-w-2xl rounded-3xl p-6 sm:p-7 shadow-2xl flex flex-col gap-4 max-h-[92vh] overflow-y-auto border border-surface-container">
+        <!-- Header -->
+        <div class="flex items-center justify-between pb-3 border-b border-surface-container">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-crimson-surface text-primary flex items-center justify-center">
+              <span class="material-symbols-outlined text-[20px]">post_add</span>
+            </div>
+            <div>
+              <h3 class="font-bold text-base text-text-primary">Tambah Bahan Bacaan Baru</h3>
+              <p class="text-[11px] text-text-muted">Ketik langsung atau unggah dokumen teks / subtitle Jepang</p>
+            </div>
+          </div>
+          <button id="modal-close-btn" class="w-8 h-8 rounded-full flex items-center justify-center text-text-muted hover:text-primary hover:bg-canvas-secondary transition-colors">
             <span class="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
-        <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-text-secondary">Judul Catatan (Opsional)</label>
-          <input id="modal-title-input" type="text" placeholder="Misal: Cerita Kafe Tokyo" class="w-full bg-surface border border-surface-container rounded-xl py-2 px-3 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary">
+        <!-- File Upload / Dropzone -->
+        <div id="file-dropzone" class="border-2 border-dashed border-primary/30 hover:border-primary rounded-2xl p-5 text-center transition-all cursor-pointer bg-canvas-secondary/30 hover:bg-crimson-surface/40 flex flex-col items-center justify-center gap-2 group">
+          <input type="file" id="file-input" accept=".txt,.md,.srt,.vtt,text/*" class="hidden">
+          <div class="w-11 h-11 rounded-full bg-crimson-surface text-primary flex items-center justify-center group-hover:scale-105 transition-transform shadow-sm">
+            <span class="material-symbols-outlined text-[24px]">upload_file</span>
+          </div>
+          <div class="flex flex-col">
+            <span class="text-xs font-bold text-text-primary">Seret & lepas file di sini atau klik untuk jelajahi</span>
+            <span class="text-[10px] text-text-muted mt-0.5">Mendukung: .txt (novel/Aozora), .srt/.vtt (subtitle anime otomatis dibersihkan), .md</span>
+          </div>
         </div>
 
-        <div class="flex flex-col gap-1.5">
-          <label class="text-xs font-semibold text-text-secondary">Teks Bahasa Jepang</label>
-          <textarea id="modal-text-input" rows="6" placeholder="Tempel atau ketik teks Jepang di sini..." class="w-full max-h-56 bg-surface border border-surface-container rounded-xl p-3 text-sm text-text-primary font-mincho placeholder:text-text-muted focus:outline-none focus:border-primary leading-relaxed resize-none overflow-y-auto"></textarea>
+        <div class="flex items-center gap-3 py-0.5">
+          <div class="h-px bg-surface-container flex-1"></div>
+          <span class="text-[10px] font-bold text-text-muted uppercase tracking-wider">atau ketik manual</span>
+          <div class="h-px bg-surface-container flex-1"></div>
         </div>
 
-        <button id="modal-submit-btn" class="w-full py-3.5 px-6 rounded-full bg-primary text-white font-bold text-xs shadow-md hover:bg-primary-container active:scale-95 transition-all flex items-center justify-center gap-2 mt-2">
-          <span class="material-symbols-outlined text-[18px]">menu_book</span>
-          <span>Simpan & Buka Bacaan</span>
-        </button>
+        <!-- Title Input -->
+        <div class="flex flex-col gap-1.5">
+          <label class="text-xs font-semibold text-text-secondary">Judul Dokumen (Opsional)</label>
+          <input id="modal-title-input" type="text" placeholder="Misal: Cerita Kafe Tokyo / Subtitle Anime" class="w-full bg-surface border border-surface-container rounded-xl py-2.5 px-3.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary">
+        </div>
+
+        <!-- Textarea with char count -->
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-semibold text-text-secondary">Teks Bahasa Jepang</label>
+            <span id="modal-char-count" class="text-[10px] text-text-muted font-mono">0 karakter</span>
+          </div>
+          <textarea id="modal-text-input" rows="6" placeholder="Tempel atau ketik teks Jepang di sini..." class="w-full max-h-56 bg-surface border border-surface-container rounded-xl p-3.5 text-sm text-text-primary font-mincho placeholder:text-text-muted focus:outline-none focus:border-primary leading-relaxed resize-none overflow-y-auto"></textarea>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center justify-end gap-3 pt-3 border-t border-surface-container">
+          <button id="modal-cancel-btn" class="px-5 py-2.5 rounded-full text-xs font-semibold text-text-secondary hover:bg-canvas-secondary transition-colors">
+            Batal
+          </button>
+          <button id="modal-submit-btn" class="py-2.5 px-6 rounded-full bg-primary text-white font-bold text-xs shadow-md hover:bg-primary-container active:scale-95 transition-all flex items-center gap-2">
+            <span class="material-symbols-outlined text-[18px]">menu_book</span>
+            <span>Simpan & Buka Bacaan</span>
+          </button>
+        </div>
       </div>
     </div>
   `;
@@ -819,8 +921,39 @@ function renderApp(state: AppState): void {
       syncText.innerText = 'Luring';
     }
   }
+  // Update desktop sidebar navigation highlight
+  const desktopNavButtons = document.querySelectorAll('.desktop-nav-item');
+  desktopNavButtons.forEach(btn => {
+    const view = (btn as HTMLElement).dataset.view;
+    if (view === state.currentView) {
+      btn.classList.add('text-primary', 'bg-crimson-surface', 'font-bold');
+      btn.classList.remove('text-text-secondary', 'hover:bg-canvas-secondary');
+    } else {
+      btn.classList.remove('text-primary', 'bg-crimson-surface', 'font-bold');
+      btn.classList.add('text-text-secondary', 'hover:bg-canvas-secondary');
+    }
+  });
 
-  // Highlight active bottom nav item
+  // Update desktop sync indicator
+  const deskSyncIcon = getEl('desktop-sync-icon');
+  const deskSyncText = getEl('desktop-sync-text');
+  if (deskSyncIcon && deskSyncText) {
+    if (state.syncStatus === 'syncing') {
+      deskSyncIcon.innerText = 'sync';
+      deskSyncIcon.classList.add('animate-spin');
+      deskSyncText.innerText = 'Menyinkronkan...';
+    } else if (state.syncStatus === 'synced') {
+      deskSyncIcon.innerText = 'cloud_done';
+      deskSyncIcon.classList.remove('animate-spin');
+      deskSyncText.innerText = 'Cloudflare Edge (Aktif)';
+    } else {
+      deskSyncIcon.innerText = 'cloud_off';
+      deskSyncIcon.classList.remove('animate-spin');
+      deskSyncText.innerText = 'Mode Luring';
+    }
+  }
+
+  // Highlight active mobile bottom nav item
   const navButtons = document.querySelectorAll('.nav-item');
   navButtons.forEach(btn => {
     const view = (btn as HTMLElement).dataset.view;
@@ -899,11 +1032,30 @@ function attachEvents(state: AppState): void {
       }
     });
   });
+  // Desktop sidebar navigation
+  document.querySelectorAll('.desktop-nav-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const view = (btn as HTMLElement).dataset.view as AppState['currentView'] | undefined;
+      if (view) {
+        showAddTextModal = false;
+        inspectedToken = null;
+        store.setView(view);
+      }
+    });
+  });
 
-  // Center (+) FAB Button
-  getEl('nav-add-btn')?.addEventListener('click', () => {
+  // Modal triggers
+  const openAddModal = () => {
     showAddTextModal = true;
     renderApp(store.getState());
+  };
+  getEl('sidebar-add-btn')?.addEventListener('click', openAddModal);
+  getEl('collection-add-btn')?.addEventListener('click', openAddModal);
+  getEl('nav-add-btn')?.addEventListener('click', openAddModal);
+
+  // Desktop sync button
+  getEl('desktop-sync-btn')?.addEventListener('click', () => {
+    store.syncWithBackend();
   });
 
   // Splash buttons
@@ -1172,8 +1324,12 @@ function attachEvents(state: AppState): void {
     store.syncWithBackend();
   });
 
-  // Add Text Modal Close
+  // Add Text Modal Close & Cancel
   getEl('modal-close-btn')?.addEventListener('click', () => {
+    showAddTextModal = false;
+    renderApp(store.getState());
+  });
+  getEl('modal-cancel-btn')?.addEventListener('click', () => {
     showAddTextModal = false;
     renderApp(store.getState());
   });
@@ -1183,6 +1339,42 @@ function attachEvents(state: AppState): void {
       renderApp(store.getState());
     }
   });
+
+  // File Dropzone & input listeners
+  const dropzone = getEl('file-dropzone');
+  const fileInput = getEl<HTMLInputElement>('file-input');
+  const modalTextInput = getEl<HTMLTextAreaElement>('modal-text-input');
+  const modalCharCount = getEl('modal-char-count');
+
+  if (modalTextInput && modalCharCount) {
+    modalTextInput.addEventListener('input', () => {
+      modalCharCount.innerText = `${modalTextInput.value.length} karakter`;
+    });
+  }
+
+  if (dropzone && fileInput) {
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('border-primary', 'bg-crimson-surface');
+    });
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.classList.remove('border-primary', 'bg-crimson-surface');
+    });
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('border-primary', 'bg-crimson-surface');
+      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+        handleAttachedFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files.length > 0) {
+        handleAttachedFile(fileInput.files[0]);
+      }
+    });
+  }
 
   // Add Text Submit -> Instant Open in 0ms + Progressive Analysis!
   getEl('modal-submit-btn')?.addEventListener('click', () => {
