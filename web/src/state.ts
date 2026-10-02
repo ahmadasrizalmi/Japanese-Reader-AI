@@ -397,13 +397,24 @@ export class AppStore {
     this.notify();
   }
 
+  public openArticle(id: string): void {
+    const article = this.state.articles.find(a => a.id === id) || null;
+    this.state.activeArticle = article;
+    this.state.activeSentenceIndex = 0;
+    this.state.currentView = 'reader';
+    this.notify();
+  }
+
   public setActiveSentenceIndex(index: number): void {
     this.state.activeSentenceIndex = index;
     this.notify();
   }
 
   // Articles CRUD
-  public addArticle(article: Article): void {
+  public addArticle(article: Article, sentences?: Sentence[]): void {
+    if (sentences) {
+      article.sentences = sentences;
+    }
     this.state.articles = [article, ...this.state.articles.filter(a => a.id !== article.id)];
     this.notify();
   }
