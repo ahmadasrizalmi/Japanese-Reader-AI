@@ -13,6 +13,7 @@ import {
   getPastelHighlight,
   calculateNextSrsInterval
 } from './state';
+import { tokenizeSentence, detectGrammarPoints } from './tokenizer';
 
 const store = new AppStore();
 
@@ -42,7 +43,7 @@ let isFlashcardFlipped: boolean = false;
 // Reader local states
 let readerFuriganaMode: 'always' | 'tap' | 'off' = 'off';
 let readerTranslateMode: boolean = false;
-let readerShowPillBar: boolean = false;
+let readerShowPillBar: boolean = true;
 let readerFontSizeSp: number = 20;
 let readerExpandedSentences: Set<string> = new Set();
 let inspectedToken: Token | null = null;
@@ -224,37 +225,35 @@ function renderReader(state: AppState): string {
             const isExpanded = readerTranslateMode || readerExpandedSentences.has(sent.id);
 
             return `
-              <div class="sentence-block flex flex-col gap-1.5 transition-all rounded-xl p-2 hover:bg-canvas-secondary/40" data-sent-id="${sent.id}">
-                <div class="flex items-baseline gap-2">
-                  <!-- Translation trigger icon (visible when translation mode is ON) -->
-                  ${readerTranslateMode ? `
-                    <button class="btn-toggle-inline-trans shrink-0 flex items-center justify-center w-6 h-6 rounded-md ${isExpanded ? 'bg-primary text-white' : 'bg-canvas-secondary text-text-secondary hover:text-primary'} text-[11px] font-bold transition-colors" data-sent-id="${sent.id}" title="Toggle terjemahan">
-                      あA
-                    </button>
-                  ` : ''}
+                <div class="flex items-baseline gap-2.5">
+                  <!-- Translation trigger icon (Always visible for seamless per-sentence access) -->
+                  <button class="btn-toggle-inline-trans shrink-0 flex items-center justify-center w-6 h-6 rounded-md ${isExpanded ? 'bg-primary text-white shadow-sm' : 'bg-canvas-secondary text-text-secondary hover:text-primary hover:bg-crimson-surface'} text-[11px] font-bold transition-all" data-sent-id="${sent.id}" title="Lihat terjemahan kalimat ini">
+                    あA
+                  </button>
 
                   <!-- Japanese Tokens Row with Zero-space natural typography -->
-                  <div class="japanese-sentence leading-[2.6em] text-text-primary tracking-normal flex-1 flex flex-wrap items-end" style="word-spacing: 0;">
-                    ${tokens.length > 0 ? tokens.map((token, tIdx) => {
-                      const hasReading = token.reading && token.reading !== token.surface && !['、', '。', '！', '？', '「', '」', '（', '）', '・'].includes(token.surface);
-                      const tokenJson = encodeURIComponent(JSON.stringify(token));
+                  <div class="japanese-sentence leading-[2.8em] text-text-primary tracking-normal flex-1" style="word-spacing: 0; letter-spacing: 0;">
+                    ${(() => {
+                      const sentenceTokens = tokens.length > 0 ? tokens : tokenizeSentence(sent.original_text);
                       const isFuriOn = readerFuriganaMode === 'always';
+                      return sentenceTokens.map((token, tIdx) => {
+                        const hasReading = token.reading && token.reading !== token.surface && !['、', '。', '！', '？', '「', '」', '（', '）', '・'].includes(token.surface);
+                        const tokenJson = encodeURIComponent(JSON.stringify(token));
 
-                      if (isFuriOn && hasReading) {
-                        return `<ruby class="token-word group inline-block cursor-pointer hover:bg-highlight-yellow rounded px-0 py-0.5 transition-colors" data-token="${tokenJson}" data-sent-id="${sent.id}">${token.surface}<rt class="text-primary font-semibold text-[10px] select-none">${token.reading}</rt></ruby>`;
-                      } else if (isFuriOn && !hasReading) {
-                        return `<span class="token-word inline-block cursor-pointer hover:bg-highlight-yellow rounded px-0 py-0.5 transition-colors" data-token="${tokenJson}" data-sent-id="${sent.id}"><span class="block h-[12px]"></span>${token.surface}</span>`;
-                      } else {
-                        return `<span class="token-word inline-block cursor-pointer hover:bg-highlight-yellow rounded px-0 py-0.5 transition-colors" data-token="${tokenJson}" data-sent-id="${sent.id}">${token.surface}</span>`;
-                      }
-                    }).join('') : `<span>${sent.original_text}</span>`}
+                        if (isFuriOn && hasReading) {
+                          return `<ruby class="token-word cursor-pointer hover:bg-highlight-yellow rounded px-0 transition-colors" data-token="${tokenJson}" data-sent-id="${sent.id}">${token.surface}<rt class="text-primary font-semibold text-[10px] select-none">${token.reading}</rt></ruby>`;
+                        } else {
+                          return `<span class="token-word cursor-pointer hover:bg-highlight-yellow rounded px-0 transition-colors" data-token="${tokenJson}" data-sent-id="${sent.id}">${token.surface}</span>`;
+                        }
+                      }).join('');
+                    })()}
                   </div>
                 </div>
 
                 <!-- Smooth Inline Translation directly below the sentence -->
-                ${isExpanded && sent.translated_text ? `
+                ${isExpanded ? `
                   <div class="sentence-translation font-sans text-xs text-[#6E6262] leading-relaxed pl-8 pt-0.5 transition-all">
-                    ${sent.translated_text}
+                    ${sent.translated_text || 'Sedang menganalisis terjemahan konteks...'}
                   </div>
                 ` : ''}
               </div>
@@ -276,8 +275,8 @@ function renderReader(state: AppState): string {
       </div>
 
       <!-- Floating Minimalist Pill Bar (Appears on clicking background / toggle) -->
-      <div id="reader-floating-pill" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 ${readerShowPillBar ? 'flex' : 'hidden'} items-center gap-1.5 bg-[#2D2424]/95 text-white backdrop-blur-lg px-4 py-2 rounded-full shadow-2xl transition-all border border-white/10 select-none">
-        <!-- Toggle Furigana -->
+      <!-- Floating Minimalist Pill Bar (Always visible floating at bottom center) -->
+      <div id="reader-floating-pill" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 bg-[#2D2424]/95 text-white backdrop-blur-lg px-4 py-2 rounded-full shadow-2xl transition-all border border-white/10 select-none">
         <button id="pill-furi-btn" class="px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${readerFuriganaMode === 'always' ? 'bg-primary text-white shadow-sm' : 'text-white/70 hover:text-white'}">
           ふりがな
         </button>
@@ -752,6 +751,10 @@ async function runProgressiveAnalysis(articleId: string, rawText: string): Promi
               s.grammar_analysis = JSON.stringify(analyzed.grammar_points);
             }
           });
+          const active = store.getState().activeArticle;
+          if (active && active.id === articleId) {
+            active.sentences = [...sentences];
+          }
           store.notify();
         }
       }
@@ -931,7 +934,7 @@ function attachEvents(state: AppState): void {
       const artId = (card as HTMLElement).dataset.artId;
       if (artId) {
         readerExpandedSentences.clear();
-        readerShowPillBar = false;
+        readerShowPillBar = true;
         store.openArticle(artId);
       }
     });
@@ -971,6 +974,12 @@ function attachEvents(state: AppState): void {
   getEl('pill-trans-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
     readerTranslateMode = !readerTranslateMode;
+    const article = store.getState().activeArticle;
+    if (readerTranslateMode && article?.sentences) {
+      article.sentences.forEach(s => readerExpandedSentences.add(s.id));
+    } else {
+      readerExpandedSentences.clear();
+    }
     renderApp(store.getState());
   });
 
@@ -1192,21 +1201,23 @@ function attachEvents(state: AppState): void {
     // Natural sentence splitting:
     const rawSentences = rawText.split(/(?<=[。！？\n])/).map(s => s.trim()).filter(s => s.length > 0);
     const sentenceList = rawSentences.length > 0 ? rawSentences : [rawText];
-
-    const sentences: Sentence[] = sentenceList.map((s, idx) => ({
-      id: `sent_${artId}_${idx + 1}`,
-      article_id: artId,
-      original_text: s,
-      translated_text: '',
-      furigana_payload: '[]',
-      grammar_analysis: '[]',
-      sequence_order: idx + 1,
-      inspection_count: 0,
-      audio_play_count: 0,
-      needs_deep_study: 0,
-      updated_at: now
-    }));
-
+    const sentences: Sentence[] = sentenceList.map((s, idx) => {
+      const initialTokens = tokenizeSentence(s);
+      const initialGrammar = detectGrammarPoints(s);
+      return {
+        id: `sent_${artId}_${idx + 1}`,
+        article_id: artId,
+        original_text: s,
+        translated_text: '',
+        furigana_payload: JSON.stringify(initialTokens),
+        grammar_analysis: JSON.stringify(initialGrammar),
+        sequence_order: idx + 1,
+        inspection_count: 0,
+        audio_play_count: 0,
+        needs_deep_study: 0,
+        updated_at: now
+      };
+    });
     const article: Article = {
       id: artId,
       user_id: 'usr_default',
@@ -1224,7 +1235,7 @@ function attachEvents(state: AppState): void {
     store.addArticle(article, sentences);
     showAddTextModal = false;
     readerExpandedSentences.clear();
-    readerShowPillBar = false;
+    readerShowPillBar = true;
     store.openArticle(artId);
 
     // Launch background progressive analysis
