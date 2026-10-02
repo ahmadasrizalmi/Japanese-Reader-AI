@@ -14,7 +14,7 @@ import {
   calculateNextSrsInterval
 } from './state';
 import { tokenizeSentence, detectGrammarPoints } from './tokenizer';
-
+import { LOGO_BASE64 } from './logoBase64';
 const store = new AppStore();
 
 // Synthesize audio using Web Audio API or fallback SpeechSynthesis
@@ -67,7 +67,7 @@ function renderSplash(state: AppState): string {
 
       <div class="relative z-10 flex items-center gap-2 mb-4">
         <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center p-1 shadow-md">
-          <img src="assets/logo.png" alt="Logo" class="w-full h-full object-contain">
+          <img src="${LOGO_BASE64}" alt="Logo" class="w-full h-full object-contain">
         </div>
         <div class="flex flex-col text-left">
           <span class="text-[10px] uppercase font-bold tracking-wider text-on-primary-container">Reader AI</span>
@@ -899,6 +899,11 @@ function renderApp(state: AppState): void {
   const bottomNav = getEl('bottom-nav');
   const mainEl = document.querySelector('main');
 
+  // Inject logo base64 if not yet set
+  const deskLogo = getEl<HTMLImageElement>('app-logo-desktop');
+  if (deskLogo && !deskLogo.src.startsWith('data:')) deskLogo.src = LOGO_BASE64;
+  const mobLogo = getEl<HTMLImageElement>('app-logo-mobile');
+  if (mobLogo && !mobLogo.src.startsWith('data:')) mobLogo.src = LOGO_BASE64;
   // Handle Full-Width Zen Mode in Reader
   if (state.currentView === 'reader') {
     topAppBar?.classList.add('hidden');
