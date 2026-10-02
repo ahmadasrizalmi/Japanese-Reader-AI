@@ -57,7 +57,7 @@ class KomorebiRepository(
         val now = System.currentTimeMillis()
         val artId = "art_${now}"
 
-        val rawSentences = rawText.split(Regex("(?<=[。！？\n])"))
+        val rawSentences = rawText.split(Regex("(?<=[。！？\n])(?![」』\"'\\)])"))
             .map { it.trim() }
             .filter { it.isNotBlank() }
 

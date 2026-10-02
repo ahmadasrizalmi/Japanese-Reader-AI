@@ -258,8 +258,8 @@ function renderReader(state: AppState): string {
           ${sentences.map((sent, sIdx) => {
             const tokens = parseTokens(sent.furigana_payload);
             const isExpanded = readerTranslateMode || readerExpandedSentences.has(sent.id);
-
             return `
+              <div class="sentence-block flex flex-col gap-1 transition-all rounded-xl p-1.5 hover:bg-canvas-secondary/40" data-sent-id="${sent.id}">
                 <div class="flex items-baseline gap-2.5">
                   <!-- Translation trigger icon (Always visible for seamless per-sentence access) -->
                   <button class="btn-toggle-inline-trans shrink-0 flex items-center justify-center w-7 h-7 md:w-8 md:h-8 rounded-lg ${isExpanded ? 'bg-primary text-white shadow-sm' : 'bg-canvas-secondary text-text-secondary hover:text-primary hover:bg-crimson-surface'} text-xs font-bold transition-all" data-sent-id="${sent.id}" title="Lihat terjemahan kalimat ini">
@@ -267,7 +267,7 @@ function renderReader(state: AppState): string {
                   </button>
 
                   <!-- Japanese Tokens Row with Zero-space natural typography -->
-                  <div class="japanese-sentence leading-[3.2em] text-text-primary tracking-normal flex-1" style="word-spacing: 0; letter-spacing: 0;">
+                  <div class="japanese-sentence leading-[2.2em] text-text-primary tracking-normal flex-1" style="word-spacing: 0; letter-spacing: 0;">
                     ${(() => {
                       const sentenceTokens = tokens.length > 0 ? tokens : tokenizeSentence(sent.original_text);
                       const isFuriOn = readerFuriganaMode === 'always';
@@ -806,29 +806,13 @@ function renderWordInspectionModal(): string {
 // PROGRESSIVE BACKGROUND ANALYSIS ENGINE (ZERO TIMEOUT CHUNKS)
 // -------------------------------------------------------------
 async function runProgressiveAnalysis(articleId: string, rawText: string): Promise<void> {
-  const sentences = store.getState().articles.find(a => a.id === articleId)?.sentences || [];
-  if (sentences.length === 0) return;
-
-  // Chunk into 2-3 sentences max
-  const chunks: Sentence[][] = [];
-  let cur: Sentence[] = [];
-  let curLen = 0;
-
-  for (const s of sentences) {
-    if (cur.length > 0 && (curLen + s.original_text.length > 350 || cur.length >= 3)) {
-      chunks.push(cur);
-      cur = [];
-      curLen = 0;
-    }
-    cur.push(s);
-    curLen += s.original_text.length;
-  }
-  if (cur.length > 0) chunks.push(cur);
-
-  const total = chunks.length;
+  const article = store.getState().articles.find(a => a.id === articleId);
+  if (!article || !article.sentences || article.sentences.length === 0) return;
+  const sentences = article.sentences;
+  const total = sentences.length;
 
   for (let i = 0; i < total; i++) {
-    const chunk = chunks[i];
+    const s = sentences[i];
     store.updateAnalysisProgress({
       articleId,
       currentChunk: i + 1,
@@ -836,12 +820,11 @@ async function runProgressiveAnalysis(articleId: string, rawText: string): Promi
       isComplete: false
     });
 
-    const chunkText = chunk.map(s => s.original_text).join('');
     try {
       const res = await fetch(`${store.getState().apiBaseUrl}/api/v1/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: chunkText })
+        body: JSON.stringify({ text: s.original_text })
       });
 
       if (res.ok) {
@@ -853,15 +836,12 @@ async function runProgressiveAnalysis(articleId: string, rawText: string): Promi
           }>;
         }
         const data = (await res.json()) as AnalyzeResponsePayload;
-        if (data.sentences && Array.isArray(data.sentences)) {
-          chunk.forEach((s, sIdx) => {
-            const analyzed = data.sentences ? data.sentences[sIdx] : undefined;
-            if (analyzed) {
-              s.translated_text = analyzed.translated_text;
-              s.furigana_payload = JSON.stringify(analyzed.tokens);
-              s.grammar_analysis = JSON.stringify(analyzed.grammar_points);
-            }
-          });
+        if (data.sentences && data.sentences.length > 0) {
+          const analyzed = data.sentences[0];
+          s.translated_text = analyzed.translated_text;
+          s.furigana_payload = JSON.stringify(analyzed.tokens);
+          s.grammar_analysis = JSON.stringify(analyzed.grammar_points);
+
           const active = store.getState().activeArticle;
           if (active && active.id === articleId) {
             active.sentences = [...sentences];
@@ -870,10 +850,9 @@ async function runProgressiveAnalysis(articleId: string, rawText: string): Promi
         }
       }
     } catch {
-      // Continue next chunk gracefully
+      // Continue next sentence gracefully
     }
   }
-
   store.updateAnalysisProgress({
     articleId,
     currentChunk: total,
@@ -1425,7 +1404,7 @@ function attachEvents(state: AppState): void {
     const artId = `art_${now}_${Math.random().toString(36).substring(2, 6)}`;
 
     // Natural sentence splitting:
-    const rawSentences = rawText.split(/(?<=[。！？\n])/).map(s => s.trim()).filter(s => s.length > 0);
+    const rawSentences = rawText.split(/(?<=[。！？\n])(?![」』"'\)])/).map(s => s.trim()).filter(s => s.length > 0);
     const sentenceList = rawSentences.length > 0 ? rawSentences : [rawText];
     const sentences: Sentence[] = sentenceList.map((s, idx) => {
       const initialTokens = tokenizeSentence(s);
