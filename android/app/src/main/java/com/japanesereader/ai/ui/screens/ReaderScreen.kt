@@ -44,6 +44,7 @@ data class GrammarBreakdownItem(
 fun ReaderScreen(
     article: ArticleEntity,
     sentences: List<SentenceEntity>,
+    analysisProgress: com.japanesereader.ai.data.repository.AnalysisProgress? = null,
     kanjiFontStyle: String = "mincho",
     currentlyPlayingText: String?,
     onToggleAudio: (text: String, sentenceId: String?) -> Unit,
@@ -127,6 +128,50 @@ fun ReaderScreen(
             trackColor = Color.Transparent
         )
 
+        // Non-intrusive Progressive Analysis Banner
+        val prog = analysisProgress
+        if (prog != null && prog.articleId == article.id) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 10.dp)
+                    .clip(RoundedCornerShape(100))
+                    .background(if (prog.isComplete) Color(0xFFE8F5E9) else CrimsonSurface)
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (!prog.isComplete) {
+                        CircularProgressIndicator(
+                            color = PrimaryCrimson,
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Menganalisis teks: bagian ${prog.currentChunk} dari ${prog.totalChunks}...",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = PrimaryCrimson
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFF2E7D32),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Analisis teks lengkap siap dibaca!",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF2E7D32)
+                        )
+                    }
+                }
+            }
+        }
+
         // Article Scrollable Canvas (Edge-to-Edge with natural reading margins)
         LazyColumn(
             state = listState,
@@ -149,26 +194,26 @@ fun ReaderScreen(
                         .fillMaxWidth()
                         .padding(top = 28.dp, bottom = 8.dp)
                 ) {
+                    val charCount = article.rawText.length
+                    val estimatedMinutes = Math.max(1, charCount / 300)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.padding(bottom = 6.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(100))
-                                .background(CrimsonSurface)
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "JLPT ${article.difficultyLevel}",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = PrimaryCrimson
-                            )
-                        }
                         Text(
-                            text = article.category,
+                            text = "~$estimatedMinutes menit baca",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = PrimaryCrimson
+                        )
+                        Text(
+                            text = "•",
+                            fontSize = 11.sp,
+                            color = TextMuted
+                        )
+                        Text(
+                            text = "$charCount karakter",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = TextMuted
@@ -265,14 +310,12 @@ fun ReaderScreen(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Bottom,
                                     modifier = Modifier
-                                        .padding(horizontal = 1.dp, vertical = 1.dp)
-                                        .clip(RoundedCornerShape(6.dp))
+                                        .clip(RoundedCornerShape(4.dp))
                                         .background(
                                             if (isTokenSelected) PastelPalette[Math.abs(token.surface.hashCode()) % PastelPalette.size]
                                             else Color.Transparent
                                         )
                                         .clickable {
-                                            // Tap on word opens detailed inspection bottom sheet & saves to SRS
                                             revealedWordKeys[wordKey] = !(revealedWordKeys[wordKey] ?: false)
                                             selectedToken = token
                                             selectedSentence = sent
@@ -290,25 +333,34 @@ fun ReaderScreen(
 
                                             onInspectSentence(sent.id)
                                         }
-                                        .padding(horizontal = 2.dp, vertical = 1.dp)
+                                        .padding(horizontal = if (isTokenSelected) 2.dp else 0.dp)
                                 ) {
-                                    // Ruby Furigana text: Clean, precise, directly above Kanji
-                                    if (hasReading && token.reading != null) {
-                                        if (showRuby) {
+                                    // Zero layout shift & flat typographic baseline
+                                    if (isFuriganaEnabled) {
+                                        if (hasReading && token.reading != null) {
                                             Text(
                                                 text = token.reading,
-                                                fontSize = (currentFontSizeSp * 0.48f).sp,
+                                                fontSize = (currentFontSizeSp * 0.46f).sp,
                                                 fontWeight = FontWeight.SemiBold,
                                                 color = PrimaryCrimson,
                                                 lineHeight = (currentFontSizeSp * 0.55f).sp
                                             )
                                         } else {
-                                            // Reserve vertical space so baseline NEVER jumps when ruby appears
                                             Spacer(modifier = Modifier.height((currentFontSizeSp * 0.55f).dp))
+                                        }
+                                    } else if (revealedWordKeys[wordKey] == true || isTokenSelected) {
+                                        if (hasReading && token.reading != null) {
+                                            Text(
+                                                text = token.reading,
+                                                fontSize = (currentFontSizeSp * 0.46f).sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = PrimaryCrimson,
+                                                lineHeight = (currentFontSizeSp * 0.55f).sp
+                                            )
                                         }
                                     }
 
-                                    // Kanji Surface text
+                                    // Natural Japanese character typography
                                     Text(
                                         text = token.surface,
                                         fontSize = currentFontSizeSp.sp,

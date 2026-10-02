@@ -7,10 +7,19 @@ import com.japanesereader.ai.data.remote.AnalyzeResponseDto
 import com.japanesereader.ai.data.remote.KomorebiApiClient
 import com.japanesereader.ai.data.remote.SyncPayloadDto
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+
+data class AnalysisProgress(
+    val articleId: String,
+    val currentChunk: Int,
+    val totalChunks: Int,
+    val isComplete: Boolean = false
+)
 
 class KomorebiRepository(
     private val database: KomorebiDatabase,
@@ -27,6 +36,9 @@ class KomorebiRepository(
     private val _syncStatus = MutableStateFlow("Synced")
     val syncStatus: StateFlow<String> = _syncStatus
 
+    private val _analysisProgress = MutableStateFlow<AnalysisProgress?>(null)
+    val analysisProgress: StateFlow<AnalysisProgress?> = _analysisProgress.asStateFlow()
+
     fun getSentencesForArticle(articleId: String): Flow<List<SentenceEntity>> {
         return database.sentenceDao().getSentencesByArticleId(articleId)
     }
@@ -36,65 +48,121 @@ class KomorebiRepository(
             ?: database.userSettingsDao().getUserSettings("usr_default")?.deepseekApiKey
         apiClient.analyzeText(text, apiKey)
     }
-    suspend fun createArticle(title: String, category: String, rawText: String): ArticleEntity = withContext(Dispatchers.IO) {
+    // Instant Article Creation: saves raw text into sentences and opens immediately (0ms wait)
+    suspend fun createArticleInstant(
+        title: String,
+        category: String = "Umum",
+        rawText: String
+    ): ArticleEntity = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val artId = "art_${now}"
 
-        val apiKey = prefs?.deepseekApiKey?.ifBlank { null }
-            ?: database.userSettingsDao().getUserSettings("usr_default")?.deepseekApiKey
-        val analysis = apiClient.analyzeText(rawText, apiKey)
+        val rawSentences = rawText.split(Regex("(?<=[。！？\n])"))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
 
-        val difficulty = analysis.difficulty_level
-        val kanjiRatio = analysis.kanji_ratio
+        val sentenceList = if (rawSentences.isNotEmpty()) rawSentences else listOf(rawText.trim())
+
+        val sentenceEntities = sentenceList.mapIndexed { idx, sText ->
+            SentenceEntity(
+                id = "sent_${artId}_${idx + 1}",
+                articleId = artId,
+                originalText = sText,
+                translatedText = "",
+                furiganaPayload = "[]",
+                grammarAnalysis = "[]",
+                sequenceOrder = idx + 1,
+                inspectionCount = 0,
+                audioPlayCount = 0,
+                needsDeepStudy = false,
+                updatedAt = now
+            )
+        }
+
         val article = ArticleEntity(
             id = artId,
             userId = "usr_default",
             title = title,
             category = category,
             rawText = rawText,
-            difficultyLevel = difficulty,
-            kanjiRatio = kanjiRatio,
+            difficultyLevel = "-",
+            kanjiRatio = 0.0,
             createdAt = now,
             updatedAt = now
         )
 
-        val sentenceEntities = if (analysis != null && analysis.sentences.isNotEmpty()) {
-            analysis.sentences.mapIndexed { idx, s ->
-                SentenceEntity(
-                    id = "sent_${artId}_${idx + 1}",
-                    articleId = artId,
-                    originalText = s.original_text,
-                    translatedText = s.translated_text,
-                    furiganaPayload = gson.toJson(s.tokens),
-                    grammarAnalysis = gson.toJson(s.grammar_points),
-                    sequenceOrder = s.sequence_order,
-                    inspectionCount = 0,
-                    audioPlayCount = 0,
-                    needsDeepStudy = false,
-                    updatedAt = now
-                )
-            }
-        } else {
-            listOf(
-                SentenceEntity(
-                    id = "sent_${artId}_1",
-                    articleId = artId,
-                    originalText = rawText,
-                    translatedText = "Terjemahan konteks: $title",
-                    furiganaPayload = gson.toJson(listOf(mapOf("surface" to rawText, "reading" to rawText, "pos" to "noun"))),
-                    grammarAnalysis = "[]",
-                    sequenceOrder = 1,
-                    inspectionCount = 0,
-                    audioPlayCount = 0,
-                    needsDeepStudy = false,
-                    updatedAt = now
-                )
-            )
-        }
-
         database.articleDao().insertArticle(article)
         database.sentenceDao().insertSentences(sentenceEntities)
         article
+    }
+
+    // Progressive background analysis: processes paragraphs in small chunks without timeouts
+    suspend fun startProgressiveAnalysis(
+        articleId: String,
+        rawText: String
+    ) = withContext(Dispatchers.IO) {
+        try {
+            val existingSentences = database.sentenceDao().getSentencesByArticleIdSync(articleId)
+            if (existingSentences.isEmpty()) return@withContext
+
+            val chunks = mutableListOf<List<SentenceEntity>>()
+            var currentChunk = mutableListOf<SentenceEntity>()
+            var currentLen = 0
+
+            for (sent in existingSentences) {
+                if (currentChunk.isNotEmpty() && (currentLen + sent.originalText.length > 400 || currentChunk.size >= 3)) {
+                    chunks.add(currentChunk)
+                    currentChunk = mutableListOf()
+                    currentLen = 0
+                }
+                currentChunk.add(sent)
+                currentLen += sent.originalText.length
+            }
+            if (currentChunk.isNotEmpty()) {
+                chunks.add(currentChunk)
+            }
+
+            val total = chunks.size
+            val apiKey = prefs?.deepseekApiKey?.ifBlank { null }
+                ?: database.userSettingsDao().getUserSettings("usr_default")?.deepseekApiKey
+
+            chunks.forEachIndexed { idx, chunkSentences ->
+                _analysisProgress.value = AnalysisProgress(articleId, idx + 1, total, isComplete = false)
+                val chunkText = chunkSentences.joinToString("") { it.originalText }
+
+                try {
+                    val analysis = apiClient.analyzeText(chunkText, apiKey)
+                    if (analysis != null && analysis.sentences.isNotEmpty()) {
+                        chunkSentences.forEachIndexed { sIdx, sentEntity ->
+                            val analyzedSentence = analysis.sentences.getOrNull(sIdx)
+                            if (analyzedSentence != null) {
+                                val updated = sentEntity.copy(
+                                    translatedText = analyzedSentence.translated_text,
+                                    furiganaPayload = gson.toJson(analyzedSentence.tokens),
+                                    grammarAnalysis = gson.toJson(analyzedSentence.grammar_points),
+                                    updatedAt = System.currentTimeMillis()
+                                )
+                                database.sentenceDao().updateSentence(updated)
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Resilient: If one chunk has an issue, continue with the remaining chunks
+                }
+            }
+
+            _analysisProgress.value = AnalysisProgress(articleId, total, total, isComplete = true)
+            delay(2500)
+            if (_analysisProgress.value?.articleId == articleId) {
+                _analysisProgress.value = null
+            }
+        } catch (_: Exception) {
+            _analysisProgress.value = null
+        }
+    }
+
+    suspend fun createArticle(title: String, category: String, rawText: String): ArticleEntity {
+        return createArticleInstant(title, category, rawText)
     }
 
     suspend fun deleteArticle(id: String) = withContext(Dispatchers.IO) {

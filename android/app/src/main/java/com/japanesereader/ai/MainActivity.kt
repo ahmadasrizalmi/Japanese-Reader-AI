@@ -123,7 +123,7 @@ fun KomorebiApp(
     val allSentences by repository.allSentences.collectAsState(initial = emptyList())
     val settings by repository.settings.collectAsState(initial = null)
     val syncStatus by repository.syncStatus.collectAsState()
-
+    val analysisProgress by repository.analysisProgress.collectAsState()
     val activeArticle = articles.find { it.id == activeArticleId }
     val sentenceFlow = remember(activeArticleId) {
         val id = activeArticleId
@@ -377,6 +377,7 @@ fun KomorebiApp(
                 ReaderScreen(
                     article = activeArticle,
                     sentences = activeSentences,
+                    analysisProgress = analysisProgress,
                     kanjiFontStyle = settings?.kanjiFontStyle ?: repository.prefs?.kanjiFontStyle ?: "mincho",
                     currentlyPlayingText = currentlyPlayingText,
                     onToggleAudio = onToggleAudio,
@@ -559,26 +560,22 @@ fun KomorebiApp(
                 Button(
                     onClick = {
                         if (inputRawText.isNotBlank()) {
-                            if (!isNetworkAvailable(context)) {
-                                showOfflineWarningDialog = true
-                            } else {
-                                isAnalyzingText = true
-                                coroutineScope.launch {
-                                    try {
-                                        val finalTitle = inputTitle.ifBlank {
-                                            if (inputRawText.length > 20) inputRawText.substring(0, 20) + "..." else inputRawText
-                                        }
-                                        val created = repository.createArticle(finalTitle, inputCategory, inputRawText)
-                                        activeArticleId = created.id
-                                        showAddTextBottomSheet = false
-                                        isReaderOpen = true
-                                        inputTitle = ""
-                                        inputRawText = ""
-                                        inputCategory = "Percakapan"
-                                        Toast.makeText(context, "Bacaan siap dibaca!", Toast.LENGTH_SHORT).show()
-                                    } finally {
-                                        isAnalyzingText = false
-                                    }
+                            val finalTitle = inputTitle.ifBlank {
+                                if (inputRawText.length > 20) inputRawText.substring(0, 20) + "..." else inputRawText
+                            }
+                            val rawToSave = inputRawText
+                            coroutineScope.launch {
+                                val created = repository.createArticleInstant(finalTitle, "Umum", rawToSave)
+                                activeArticleId = created.id
+                                showAddTextBottomSheet = false
+                                isReaderOpen = true
+                                inputTitle = ""
+                                inputRawText = ""
+
+                                if (isNetworkAvailable(context)) {
+                                    repository.startProgressiveAnalysis(created.id, rawToSave)
+                                } else {
+                                    Toast.makeText(context, "Bacaan dibuka (Mode offline)", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         } else {
@@ -591,15 +588,9 @@ fun KomorebiApp(
                         .fillMaxWidth()
                         .height(48.dp)
                 ) {
-                    if (isAnalyzingText) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Menganalisis Teks...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    } else {
-                        Icon(imageVector = Icons.Default.AutoFixHigh, contentDescription = "Analisis")
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Analisis & Baca Sekarang", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
+                    Icon(imageVector = Icons.Default.MenuBook, contentDescription = "Buka")
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Simpan & Buka Bacaan", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
