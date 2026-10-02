@@ -257,14 +257,16 @@ function renderReader(state: AppState): string {
         <div class="flex flex-col gap-5 ${fontClass}">
           ${sentences.map((sent, sIdx) => {
             const tokens = parseTokens(sent.furigana_payload);
-            const isExpanded = readerTranslateMode || readerExpandedSentences.has(sent.id);
+            const isExpanded = readerTranslateMode && readerExpandedSentences.has(sent.id);
             return `
               <div class="sentence-block flex flex-col gap-1 transition-all rounded-xl p-1.5 hover:bg-canvas-secondary/40" data-sent-id="${sent.id}">
                 <div class="flex items-baseline gap-2.5">
-                  <!-- Translation trigger icon (Always visible for seamless per-sentence access) -->
-                  <button class="btn-toggle-inline-trans shrink-0 flex items-center justify-center w-7 h-7 md:w-8 md:h-8 rounded-lg ${isExpanded ? 'bg-primary text-white shadow-sm' : 'bg-canvas-secondary text-text-secondary hover:text-primary hover:bg-crimson-surface'} text-xs font-bold transition-all" data-sent-id="${sent.id}" title="Lihat terjemahan kalimat ini">
-                    あA
-                  </button>
+                  <!-- Translation trigger icon (Only visible when translation mode is ON in pill bar!) -->
+                  ${readerTranslateMode ? `
+                    <button class="btn-toggle-inline-trans shrink-0 flex items-center justify-center w-7 h-7 md:w-8 md:h-8 rounded-lg ${isExpanded ? 'bg-primary text-white shadow-sm' : 'bg-canvas-secondary text-text-secondary hover:text-primary hover:bg-crimson-surface'} text-xs font-bold transition-all" data-sent-id="${sent.id}" title="Lihat terjemahan kalimat ini">
+                      あA
+                    </button>
+                  ` : ''}
 
                   <!-- Japanese Tokens Row with Zero-space natural typography -->
                   <div class="japanese-sentence leading-[2.2em] text-text-primary tracking-normal flex-1" style="word-spacing: 0; letter-spacing: 0;">
@@ -285,10 +287,10 @@ function renderReader(state: AppState): string {
                   </div>
                 </div>
 
-                <!-- Smooth Inline Translation directly below the sentence -->
-                ${isExpanded ? `
+                <!-- Smooth Inline Translation directly below the sentence (only when toggled!) -->
+                ${isExpanded && sent.translated_text ? `
                   <div class="sentence-translation font-sans text-xs sm:text-sm md:text-base text-[#6E6262] leading-relaxed pl-9 md:pl-11 pt-1 transition-all">
-                    ${sent.translated_text || 'Sedang menganalisis terjemahan konteks...'}
+                    ${sent.translated_text}
                   </div>
                 ` : ''}
               </div>
@@ -1079,6 +1081,7 @@ function attachEvents(state: AppState): void {
       const artId = (card as HTMLElement).dataset.artId;
       if (artId) {
         readerExpandedSentences.clear();
+        readerTranslateMode = false;
         readerShowPillBar = true;
         store.openArticle(artId);
       }
@@ -1139,10 +1142,7 @@ function attachEvents(state: AppState): void {
   getEl('pill-trans-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
     readerTranslateMode = !readerTranslateMode;
-    const article = store.getState().activeArticle;
-    if (readerTranslateMode && article?.sentences) {
-      article.sentences.forEach(s => readerExpandedSentences.add(s.id));
-    } else {
+    if (!readerTranslateMode) {
       readerExpandedSentences.clear();
     }
     renderApp(store.getState());
@@ -1440,6 +1440,7 @@ function attachEvents(state: AppState): void {
     store.addArticle(article, sentences);
     showAddTextModal = false;
     readerExpandedSentences.clear();
+    readerTranslateMode = false;
     readerShowPillBar = true;
     store.openArticle(artId);
 
