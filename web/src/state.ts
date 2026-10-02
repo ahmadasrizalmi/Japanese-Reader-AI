@@ -78,8 +78,15 @@ export interface AnalyticsStats {
   jlptDistribution: Record<string, number>;
 }
 
+export interface AnalysisProgress {
+  articleId: string;
+  currentChunk: number;
+  totalChunks: number;
+  isComplete: boolean;
+}
+
 export interface AppState {
-  currentView: 'splash' | 'quick-read' | 'koleksi' | 'reader' | 'vocab' | 'analytics' | 'settings';
+  currentView: 'splash' | 'quick-read' | 'koleksi' | 'reader' | 'vocab' | 'analytics' | 'settings' | 'flashcards' | 'progress';
   articles: Article[];
   vocabularies: Vocabulary[];
   activeArticle: Article | null;
@@ -89,8 +96,8 @@ export interface AppState {
   syncStatus: 'synced' | 'syncing' | 'offline';
   lastSyncTimestamp: number;
   apiBaseUrl: string;
+  analysisProgress?: AnalysisProgress | null;
 }
-
 export const PASTEL_COLORS: string[] = [
   '#FEF3C7', // Soft Yellow
   '#D1FAE5', // Soft Green
@@ -123,21 +130,22 @@ export function parseGrammarPoints(grammarAnalysis: string): GrammarPoint[] {
 }
 
 export function buildRubyHtml(tokens: Token[], furiganaMode: 'always' | 'tap' | 'off'): string {
-  return tokens.map(token => {
+  return tokens.map((token, tIdx) => {
+    const tokenJson = encodeURIComponent(JSON.stringify(token));
     const hasReading = token.reading && token.reading !== token.surface && !token.reading.includes('、') && !token.reading.includes('。');
     if (!hasReading) {
-      return `<span>${token.surface}</span>`;
+      return `<span class="ruby-word cursor-pointer hover:bg-highlight-yellow/50 rounded px-0 py-0.5 transition-colors" data-token="${tokenJson}" data-tindex="${tIdx}">${token.surface}</span>`;
     }
 
     if (furiganaMode === 'off') {
-      return `<span>${token.surface}</span>`;
+      return `<span class="ruby-word cursor-pointer hover:bg-highlight-yellow/50 rounded px-0 py-0.5 transition-colors" data-token="${tokenJson}" data-tindex="${tIdx}">${token.surface}</span>`;
     }
 
     const rtClass = furiganaMode === 'tap'
-      ? 'opacity-0 hover:opacity-100 focus:opacity-100 transition-opacity cursor-pointer font-bold text-primary text-[11px]'
-      : 'font-bold text-primary text-[11px]';
+      ? 'opacity-0 hover:opacity-100 group-hover:opacity-100 focus:opacity-100 transition-opacity font-bold text-primary text-[10px]'
+      : 'font-bold text-primary text-[10px]';
 
-    return `<ruby class="px-0.5">${token.surface}<rt class="${rtClass}">${token.reading}</rt></ruby>`;
+    return `<ruby class="ruby-word group cursor-pointer hover:bg-highlight-yellow/50 rounded px-0 py-0.5 transition-colors" data-token="${tokenJson}" data-tindex="${tIdx}">${token.surface}<rt class="${rtClass}">${token.reading}</rt></ruby>`;
   }).join('');
 }
 
@@ -529,7 +537,11 @@ export class AppStore {
     } catch {
       this.state.syncStatus = 'offline';
     }
+    this.notify();
+  }
 
+  public updateAnalysisProgress(progress: AnalysisProgress | null): void {
+    this.state.analysisProgress = progress;
     this.notify();
   }
 }

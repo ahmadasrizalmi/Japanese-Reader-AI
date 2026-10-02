@@ -6,6 +6,7 @@ import {
   Vocabulary,
   Token,
   GrammarPoint,
+  AnalysisProgress,
   buildRubyHtml,
   parseTokens,
   parseGrammarPoints,
@@ -15,7 +16,7 @@ import {
 
 const store = new AppStore();
 
-// Synthesize audio using Web Audio API or fallback speech
+// Synthesize audio using Web Audio API or fallback SpeechSynthesis
 function playAudioPronunciation(text: string, speed: number = 1.0): void {
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     window.speechSynthesis.cancel();
@@ -26,17 +27,29 @@ function playAudioPronunciation(text: string, speed: number = 1.0): void {
   }
 }
 
-// Dom helper
+// DOM helper
 function getEl<T extends HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
 }
 
-// Active category filter for Koleksi
+// Filter states
 let selectedCategory: string = 'Semua';
 let searchQuery: string = '';
+let selectedFlashcardFilter: string = 'Semua';
+let currentFlashcardIndex: number = 0;
+let isFlashcardFlipped: boolean = false;
 
-// Active filter for Vocabulary
-let selectedVocabFilter: string = 'Semua';
+// Reader local states
+let readerFuriganaMode: 'always' | 'tap' | 'off' = 'off';
+let readerTranslateMode: boolean = false;
+let readerShowPillBar: boolean = false;
+let readerFontSizeSp: number = 20;
+let readerExpandedSentences: Set<string> = new Set();
+let inspectedToken: Token | null = null;
+let inspectedSentence: Sentence | null = null;
+
+// Modal state
+let showAddTextModal: boolean = false;
 
 // -------------------------------------------------------------
 // 1. RENDER SPLASH / ONBOARDING
@@ -61,326 +74,80 @@ function renderSplash(state: AppState): string {
         </div>
       </div>
 
-      <div class="relative z-10 my-4">
-        <div class="w-48 h-48 rounded-3xl bg-white/10 p-2 shadow-2xl backdrop-blur-sm mx-auto overflow-hidden">
-          <img src="assets/logo.png" alt="Japanese Reader YOMU" class="w-full h-full object-cover rounded-2xl shadow-inner">
-        </div>
-      </div>
+      <h2 class="relative z-10 text-2xl font-bold tracking-tight mb-2 font-mincho">
+        Komorebi Reader AI
+      </h2>
+      <p class="relative z-10 text-xs text-white/80 max-w-sm mb-6 leading-relaxed">
+        Platform membaca bahasa Jepang modern dengan kanvas Zen full-width, furigana ruby rapi, terjemahan inline, dan dek flashcard Spaced Repetition otomatis.
+      </p>
 
-      <div class="relative z-10 max-w-sm">
-        <h2 class="text-2xl font-bold tracking-tight">Read Japanese Naturally.</h2>
-        <p class="text-base text-primary-fixed mt-2 font-medium tracking-wide">自然な日本語を、心地よく読む。</p>
-        <p class="text-xs text-white/80 mt-2 leading-relaxed">
-          Tingkatkan kemampuan membaca bahasa Jepang dengan furigana dinamis, analisis tata bahasa bertenaga AI, dan sistem repetisi berjarak (SRS).
-        </p>
-      </div>
-
-      <div class="relative z-10 w-full max-w-xs mt-6 flex flex-col gap-2.5">
+      <div class="relative z-10 w-full flex flex-col gap-2.5 max-w-xs">
         <button id="splash-start-btn" class="w-full py-3.5 px-6 rounded-full bg-surface text-crimson-deep font-bold text-sm shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2">
-          <span>Mulai Membaca</span>
+          <span>Buka Koleksi Bacaan</span>
           <span class="material-symbols-outlined text-[18px]">arrow_forward</span>
         </button>
-        <button id="splash-library-btn" class="w-full py-2 px-4 rounded-full text-xs font-semibold text-white/90 hover:text-white transition-colors">
-          Buka Arsip Koleksi &rarr;
-        </button>
       </div>
     </div>
   `;
 }
 
 // -------------------------------------------------------------
-// 2. RENDER QUICK READ (INSTANT PARSER)
-// -------------------------------------------------------------
-let quickReadResult: {
-  text: string;
-  difficulty_level: string;
-  kanji_ratio: number;
-  sentences: Array<{
-    sequence_order: number;
-    original_text: string;
-    translated_text: string;
-    tokens: Token[];
-    grammar_points: GrammarPoint[];
-  }>;
-} | null = null;
-
-let isAnalyzing: boolean = false;
-
-function renderQuickRead(state: AppState): string {
-  const defaultText = quickReadResult ? quickReadResult.text : '今週の土曜日に新しいカフェに行きませんか。';
-
-  return `
-    <div class="flex flex-col gap-4">
-      <!-- Minimalist Scratchpad -->
-      <section class="bg-surface-card rounded-2xl p-4 shadow-sm border border-surface-container flex flex-col gap-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider">
-            <span class="material-symbols-outlined text-[16px]">edit_note</span>
-            <span>Scratchpad Teks Jepang</span>
-          </div>
-          <button id="qr-clear-btn" class="flex items-center gap-1 text-[11px] text-text-muted hover:text-primary transition-colors">
-            <span class="material-symbols-outlined text-[14px]">clear</span>
-            <span>Bersihkan</span>
-          </button>
-        </div>
-
-        <textarea id="qr-input" rows="3" class="w-full bg-transparent resize-none border-none outline-none text-lg text-text-primary placeholder:text-text-muted leading-relaxed font-mincho" placeholder="Tempel atau ketik teks Jepang di sini...">${defaultText}</textarea>
-
-        <div class="flex items-center justify-between pt-1 border-t border-surface-container text-xs text-text-muted">
-          <span id="qr-char-count">${defaultText.length} Karakter</span>
-          <div class="flex items-center gap-2">
-            <button id="qr-paste-btn" class="flex items-center gap-1 px-3 py-1.5 rounded-full bg-canvas-secondary text-primary font-semibold text-xs active:scale-95 transition-all">
-              <span class="material-symbols-outlined text-[14px]">content_paste</span>
-              <span>Tempel</span>
-            </button>
-            <button id="qr-analyze-btn" class="flex items-center gap-1 px-4 py-1.5 rounded-full bg-primary text-white font-bold text-xs shadow-sm active:scale-95 transition-all ${isAnalyzing ? 'opacity-70 cursor-not-allowed' : ''}">
-              <span class="material-symbols-outlined text-[14px]">${isAnalyzing ? 'hourglass_top' : 'auto_fix_high'}</span>
-              <span>${isAnalyzing ? 'Menganalisis...' : 'Analisis Teks'}</span>
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <!-- Minimal Inspiration Quick Chips -->
-      <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-        <span class="text-[11px] font-bold text-text-muted uppercase tracking-wider shrink-0">Inspirasi:</span>
-        <button class="qr-chip shrink-0 px-3 py-1 rounded-full bg-surface-card border border-surface-container text-xs font-medium hover:border-primary text-text-secondary active:scale-95 transition-all" data-text="今週の土曜日に新しいカフェに行きませんか。">
-          Kalimat Kafe
-        </button>
-        <button class="qr-chip shrink-0 px-3 py-1 rounded-full bg-surface-card border border-surface-container text-xs font-medium hover:border-primary text-text-secondary active:scale-95 transition-all" data-text="明日は午後から雨が降る予報です。傘を持っていきましょう。">
-          Status Cuaca
-        </button>
-        <button class="qr-chip shrink-0 px-3 py-1 rounded-full bg-surface-card border border-surface-container text-xs font-medium hover:border-primary text-text-secondary active:scale-95 transition-all" data-text="お疲れ様です！駅の改札前で待っていますね。">
-          Pesan Singkat
-        </button>
-      </div>
-
-      <!-- Instant AI Analysis Card -->
-      ${renderQuickReadResult(state)}
-    </div>
-  `;
-}
-
-function renderQuickReadResult(state: AppState): string {
-  if (!quickReadResult) {
-    // Generate initial sample parsing for immediate delight
-    const tokens: Token[] = [
-      { surface: '今週', reading: 'こんしゅう', romaji: 'konshuu', pos: 'noun', meaning: 'Minggu ini', jlpt: 'N5' },
-      { surface: 'の', reading: 'の', romaji: 'no', pos: 'particle', meaning: 'Partikel kepemilikan', jlpt: 'N5' },
-      { surface: '土曜日', reading: 'どようび', romaji: 'doyoubi', pos: 'noun', meaning: 'Hari Sabtu', jlpt: 'N5' },
-      { surface: 'に', reading: 'に', romaji: 'ni', pos: 'particle', meaning: 'Partikel waktu', jlpt: 'N5' },
-      { surface: '新しい', reading: 'あたらしい', romaji: 'atarashii', pos: 'i-adj', meaning: 'Baru', jlpt: 'N5' },
-      { surface: 'カフェ', reading: 'カフェ', romaji: 'kafe', pos: 'noun', meaning: 'Kafe', jlpt: 'N5' },
-      { surface: 'に', reading: 'に', romaji: 'ni', pos: 'particle', meaning: 'Partikel arah/tujuan', jlpt: 'N5' },
-      { surface: '行きませんか', reading: 'いきませんか', romaji: 'ikimasenka', pos: 'verb', meaning: 'Maukah pergi? (ajakan)', jlpt: 'N5' },
-      { surface: '。', reading: '', romaji: '', pos: 'punct', jlpt: '-' }
-    ];
-
-    return `
-      <section class="bg-surface-card rounded-2xl p-4 shadow-sm border border-surface-container flex flex-col gap-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-highlight-mint text-primary font-bold text-xs">
-            <span class="material-symbols-outlined text-[14px]">verified</span>
-            <span>N4 Analisis Instan</span>
-          </div>
-          <div class="flex items-center gap-1">
-            <button id="qr-play-audio-btn" class="w-8 h-8 rounded-full bg-canvas-secondary text-primary flex items-center justify-center hover:bg-crimson-surface transition-colors" title="Dengarkan Audio">
-              <span class="material-symbols-outlined text-[18px]">volume_up</span>
-            </button>
-            <button id="qr-copy-btn" class="w-8 h-8 rounded-full bg-canvas-secondary text-primary flex items-center justify-center hover:bg-crimson-surface transition-colors" title="Salin Teks">
-              <span class="material-symbols-outlined text-[18px]">content_copy</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="p-3.5 rounded-xl bg-highlight-yellow/40">
-          <p class="text-xl text-text-primary font-mincho leading-[3rem]">
-            ${buildRubyHtml(tokens, state.settings.furigana_mode)}
-          </p>
-        </div>
-
-        <div class="flex flex-col gap-1 px-1">
-          <span class="text-[10px] font-bold text-text-muted uppercase tracking-wider">Terjemahan Langsung</span>
-          <p class="text-sm font-medium text-text-primary">
-            "Maukah kamu pergi ke kafe baru pada hari Sabtu pekan ini?"
-          </p>
-        </div>
-
-        <!-- Token Pills -->
-        <div class="flex flex-col gap-1.5">
-          <span class="text-[10px] font-bold text-text-muted uppercase tracking-wider px-1">Token Kata & Partikel</span>
-          <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar font-mincho">
-            ${tokens.filter(t => t.pos !== 'punct').map(t => `
-              <div class="shrink-0 flex flex-col items-center bg-canvas-secondary px-3 py-1.5 rounded-xl">
-                <span class="text-sm font-bold text-text-primary">${t.surface}</span>
-                <span class="text-[10px] text-text-secondary">${t.meaning || t.reading}</span>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-
-        <button id="qr-save-to-collection-btn" class="w-full flex items-center justify-center gap-2 py-3 rounded-full bg-crimson-surface text-primary font-bold text-xs active:scale-95 transition-all mt-1">
-          <span class="material-symbols-outlined text-[18px]">bookmark_add</span>
-          <span>Simpan ke Koleksi Bacaan</span>
-        </button>
-      </section>
-    `;
-  }
-
-  // Display actual result
-  const s0 = quickReadResult.sentences[0];
-  const tokens = s0 ? s0.tokens : [];
-
-  return `
-    <section class="bg-surface-card rounded-2xl p-4 shadow-sm border border-surface-container flex flex-col gap-3">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-highlight-mint text-primary font-bold text-xs">
-          <span class="material-symbols-outlined text-[14px]">verified</span>
-          <span>${quickReadResult.difficulty_level} Analisis Instan</span>
-        </div>
-        <div class="flex items-center gap-1">
-          <button id="qr-play-audio-btn" class="w-8 h-8 rounded-full bg-canvas-secondary text-primary flex items-center justify-center hover:bg-crimson-surface transition-colors" title="Dengarkan Audio">
-            <span class="material-symbols-outlined text-[18px]">volume_up</span>
-          </button>
-          <button id="qr-copy-btn" class="w-8 h-8 rounded-full bg-canvas-secondary text-primary flex items-center justify-center hover:bg-crimson-surface transition-colors" title="Salin Teks">
-            <span class="material-symbols-outlined text-[18px]">content_copy</span>
-          </button>
-        </div>
-      </div>
-
-      <div class="p-3.5 rounded-xl bg-highlight-yellow/40">
-        <p class="text-xl text-text-primary font-mincho leading-[3rem]">
-          ${buildRubyHtml(tokens, state.settings.furigana_mode)}
-        </p>
-      </div>
-
-      <div class="flex flex-col gap-1 px-1">
-        <span class="text-[10px] font-bold text-text-muted uppercase tracking-wider">Terjemahan Langsung</span>
-        <p class="text-sm font-medium text-text-primary">
-          "${s0 ? s0.translated_text : ''}"
-        </p>
-      </div>
-
-      <!-- Token Pills -->
-      <div class="flex flex-col gap-1.5">
-        <span class="text-[10px] font-bold text-text-muted uppercase tracking-wider px-1">Token Kata & Partikel</span>
-        <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar font-mincho">
-          ${tokens.filter(t => t.pos !== 'punct').map(t => `
-            <div class="shrink-0 flex flex-col items-center bg-canvas-secondary px-3 py-1.5 rounded-xl">
-              <span class="text-sm font-bold text-text-primary">${t.surface}</span>
-              <span class="text-[10px] text-text-secondary">${t.meaning || t.reading}</span>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-
-      <button id="qr-save-to-collection-btn" class="w-full flex items-center justify-center gap-2 py-3 rounded-full bg-crimson-surface text-primary font-bold text-xs active:scale-95 transition-all mt-1">
-        <span class="material-symbols-outlined text-[18px]">bookmark_add</span>
-        <span>Simpan ke Koleksi Bacaan</span>
-      </button>
-    </section>
-  `;
-}
-
-// -------------------------------------------------------------
-// 3. RENDER KOLEKSI (ARTICLES LIBRARY)
+// 2. RENDER KOLEKSI BACAAN
 // -------------------------------------------------------------
 function renderKoleksi(state: AppState): string {
-  const categories = ['Semua', 'Percakapan', 'Buku & Artikel', 'Lirik Lagu', 'Menu & Tempat'];
-
-  let filtered = state.articles;
+  const categories = ['Semua', ...Array.from(new Set(state.articles.map(a => a.category).filter(c => c && c !== 'Semua')))];
+  
+  let list = state.articles;
   if (selectedCategory !== 'Semua') {
-    filtered = filtered.filter(a => a.category.toLowerCase() === selectedCategory.toLowerCase());
+    list = list.filter(a => a.category === selectedCategory);
   }
   if (searchQuery.trim() !== '') {
     const q = searchQuery.toLowerCase();
-    filtered = filtered.filter(a => a.title.toLowerCase().includes(q) || a.raw_text.toLowerCase().includes(q));
+    list = list.filter(a => a.title.toLowerCase().includes(q) || a.raw_text.toLowerCase().includes(q));
   }
 
   return `
     <div class="flex flex-col gap-4">
-      <!-- Action Deck -->
-      <div class="flex items-center gap-2.5">
-        <button id="btn-add-article-modal" class="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-full bg-primary text-white shadow-sm font-bold text-xs active:scale-95 transition-all">
-          <span class="material-symbols-outlined text-[18px]">add</span>
-          <span>Tambah Bacaan Baru</span>
-        </button>
-        <button id="btn-paste-clipboard" class="flex items-center justify-center gap-2 py-3 px-4 rounded-full bg-crimson-surface text-primary shadow-sm font-bold text-xs active:scale-95 transition-all">
-          <span class="material-symbols-outlined text-[18px]">content_paste</span>
-          <span>Tempel Teks</span>
-        </button>
-      </div>
-
       <!-- Search Bar -->
       <div class="relative">
         <span class="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted text-[18px]">search</span>
-        <input id="article-search-input" type="text" placeholder="Cari judul atau isi bacaan..." value="${searchQuery}" class="w-full pl-10 pr-4 py-2.5 bg-surface-card border border-surface-container rounded-full text-xs text-text-primary focus:outline-none focus:border-primary transition-colors">
+        <input id="collection-search-input" type="text" placeholder="Cari judul atau isi bacaan..." value="${searchQuery}" class="w-full bg-surface-card border border-surface-container rounded-full pl-10 pr-4 py-2.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary shadow-sm">
       </div>
 
-      <!-- Category Filter Pills -->
+      <!-- Categories Pills -->
       <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-        ${categories.map(cat => {
-          const isActive = selectedCategory === cat;
-          const count = cat === 'Semua' ? state.articles.length : state.articles.filter(a => a.category === cat).length;
-          return `
-            <button class="category-pill shrink-0 flex items-center gap-1.5 py-1.5 px-3.5 rounded-full text-xs font-semibold shadow-sm transition-all ${isActive ? 'bg-primary text-white' : 'bg-surface-card border border-surface-container text-text-secondary'}" data-category="${cat}">
-              <span>${cat}</span>
-              <span class="px-1.5 py-0.2 rounded-full text-[10px] ${isActive ? 'bg-white/20 text-white' : 'bg-canvas-secondary text-text-muted'}">${count}</span>
-            </button>
-          `;
-        }).join('')}
+        ${categories.map(c => `
+          <button class="collection-cat-pill px-3.5 py-1.5 rounded-full text-xs font-semibold shadow-sm transition-all shrink-0 ${selectedCategory === c ? 'bg-primary text-white' : 'bg-surface-card border border-surface-container text-text-secondary hover:border-primary/50'}" data-category="${c}">
+            ${c}
+          </button>
+        `).join('')}
       </div>
 
-      <!-- Section Title -->
-      <div class="flex items-center justify-between pt-1">
-        <div class="flex items-center gap-2">
-          <span class="font-bold text-base text-text-primary">Arsip Catatan</span>
-          <span class="text-[10px] px-2 py-0.5 rounded-full bg-crimson-surface text-primary font-bold uppercase tracking-wider">Tersimpan</span>
-        </div>
-        <span class="text-[11px] text-text-muted">${filtered.length} bacaan</span>
-      </div>
-
-      <!-- Articles Card Grid -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-        ${filtered.length === 0 ? `
-          <div class="col-span-full py-12 flex flex-col items-center justify-center text-center text-text-muted">
-            <span class="material-symbols-outlined text-4xl mb-2 text-primary/40">auto_stories</span>
-            <p class="text-sm font-semibold">Belum ada bacaan di kategori ini</p>
-            <p class="text-xs text-text-muted mt-1">Klik tombol "Tambah Bacaan Baru" untuk memulai.</p>
+      <!-- Articles Grid/List -->
+      <div class="flex flex-col gap-3">
+        ${list.length === 0 ? `
+          <div class="py-16 flex flex-col items-center justify-center text-center text-text-muted bg-surface-card rounded-2xl border border-surface-container p-6">
+            <span class="material-symbols-outlined text-4xl mb-2 text-primary/40">menu_book</span>
+            <p class="text-sm font-semibold">Tidak ada artikel di kategori ini.</p>
+            <p class="text-xs text-text-muted mt-1">Klik tombol (+) di bawah untuk menambahkan bacaan baru.</p>
           </div>
-        ` : filtered.map(art => {
-          const s0 = art.sentences && art.sentences.length > 0 ? art.sentences[0] : null;
-          const tokens = s0 ? parseTokens(s0.furigana_payload) : [];
+        ` : list.map(art => {
+          const charCount = art.raw_text.length;
+          const estimatedMinutes = Math.max(1, Math.round(charCount / 300));
           return `
-            <div class="flex flex-col justify-between p-4 rounded-2xl bg-surface-card border border-surface-container shadow-sm hover:shadow-md transition-all">
-              <div>
-                <div class="flex items-center justify-between mb-2">
-                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-highlight-yellow text-primary">JLPT ${art.difficulty_level}</span>
-                  <div class="flex items-center gap-1 text-[11px] text-text-muted">
-                    <span class="material-symbols-outlined text-[13px]">timer</span>
-                    <span>${art.raw_text.length} huruf</span>
-                  </div>
-                </div>
-
-                <h3 class="font-bold text-base text-text-primary tracking-tight mb-2 truncate">${art.title}</h3>
-
-                <div class="p-2.5 rounded-xl bg-canvas-secondary/70 mb-3 font-mincho text-sm leading-relaxed line-clamp-2">
-                  ${s0 ? buildRubyHtml(tokens, state.settings.furigana_mode) : art.raw_text}
-                </div>
+            <div class="article-card group cursor-pointer bg-surface-card border border-surface-container rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-primary/30 transition-all flex flex-col gap-2.5" data-art-id="${art.id}">
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-[11px] font-semibold text-primary">~${estimatedMinutes} menit baca • ${charCount} karakter</span>
+                <span class="text-[10px] text-text-muted font-medium">${new Date(art.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}</span>
               </div>
 
-              <div class="flex items-center justify-between pt-2 border-t border-surface-container/60">
-                <span class="text-[11px] text-text-muted">${art.category}</span>
-                <div class="flex items-center gap-1.5">
-                  <button class="btn-delete-article p-1.5 rounded-full text-text-muted hover:text-error hover:bg-error-container/30 transition-colors" data-id="${art.id}" title="Hapus Bacaan">
-                    <span class="material-symbols-outlined text-[16px]">delete</span>
-                  </button>
-                  <button class="btn-open-reader flex items-center gap-1 py-1 px-3.5 rounded-full bg-crimson-surface text-primary text-xs font-bold active:scale-95 transition-transform" data-id="${art.id}">
-                    <span>Buka</span>
-                    <span class="material-symbols-outlined text-[14px]">arrow_forward</span>
-                  </button>
-                </div>
-              </div>
+              <h3 class="font-bold text-base text-text-primary group-hover:text-primary transition-colors font-mincho line-clamp-1 leading-snug">
+                ${art.title}
+              </h3>
+
+              <p class="text-xs text-text-secondary font-mincho line-clamp-2 leading-relaxed">
+                ${art.raw_text}
+              </p>
             </div>
           `;
         }).join('')}
@@ -390,13 +157,13 @@ function renderKoleksi(state: AppState): string {
 }
 
 // -------------------------------------------------------------
-// 4. RENDER READER STUDIO
+// 3. RENDER ZEN FULL-WIDTH READER
 // -------------------------------------------------------------
 function renderReader(state: AppState): string {
   const article = state.activeArticle;
   if (!article) {
     return `
-      <div class="py-12 flex flex-col items-center justify-center text-center text-text-muted">
+      <div class="py-16 flex flex-col items-center justify-center text-center text-text-muted">
         <span class="material-symbols-outlined text-4xl mb-2 text-primary">menu_book</span>
         <p class="text-sm font-semibold">Tidak ada artikel yang sedang dibuka.</p>
         <button id="reader-back-to-library" class="mt-3 px-4 py-2 rounded-full bg-primary text-white text-xs font-bold">
@@ -407,79 +174,129 @@ function renderReader(state: AppState): string {
   }
 
   const sentences = article.sentences || [];
+  const charCount = article.raw_text.length;
+  const estimatedMinutes = Math.max(1, Math.round(charCount / 300));
+  const prog = state.analysisProgress;
+  const fontClass = state.settings.kanji_font_style === 'gothic' ? 'font-gothic' : 'font-mincho';
 
   return `
-    <div class="flex flex-col gap-3">
-      <!-- Sub-header Control Bar -->
-      <div class="flex items-center justify-between py-1 border-b border-surface-container">
-        <div class="flex items-center gap-2 min-w-0">
-          <button id="reader-back-btn" class="w-8 h-8 rounded-full hover:bg-canvas-secondary flex items-center justify-center text-text-secondary">
-            <span class="material-symbols-outlined text-[18px]">arrow_back</span>
-          </button>
-          <span class="px-2.5 py-0.5 rounded-full bg-crimson-surface text-primary text-[10px] font-bold">JLPT ${article.difficulty_level}</span>
-          <span class="text-xs font-bold text-text-primary truncate">${article.title}</span>
-        </div>
-
-        <!-- Furigana Switcher Pill -->
-        <div class="inline-flex p-1 bg-surface-container rounded-full items-center shrink-0">
-          <button class="furi-mode-btn px-2.5 py-0.5 rounded-full text-[10px] font-bold ${state.settings.furigana_mode === 'always' ? 'bg-white text-primary shadow-sm' : 'text-text-muted'}" data-mode="always">ON</button>
-          <button class="furi-mode-btn px-2.5 py-0.5 rounded-full text-[10px] font-bold ${state.settings.furigana_mode === 'tap' ? 'bg-white text-primary shadow-sm' : 'text-text-muted'}" data-mode="tap">TAP</button>
-          <button class="furi-mode-btn px-2.5 py-0.5 rounded-full text-[10px] font-bold ${state.settings.furigana_mode === 'off' ? 'bg-white text-primary shadow-sm' : 'text-text-muted'}" data-mode="off">OFF</button>
-        </div>
+    <div id="zen-reader-canvas" class="min-h-screen bg-surface flex flex-col relative select-text" style="font-size: ${readerFontSizeSp}px;">
+      <!-- Subtle Reading Progress Bar at Top -->
+      <div id="reader-progress-bar" class="fixed top-0 inset-x-0 h-1 bg-primary/20 z-50">
+        <div id="reader-progress-fill" class="h-full bg-primary transition-all duration-150" style="width: 0%;"></div>
       </div>
 
-      <!-- Reading Canvas Card -->
-      <div class="bg-surface-card rounded-2xl p-5 shadow-sm border border-surface-container flex flex-col gap-4">
-        <div class="flex items-center justify-between text-xs text-text-muted pb-1 border-b border-surface-container">
-          <span class="flex items-center gap-1">
-            <span class="material-symbols-outlined text-[14px]">touch_app</span>
-            <span>Ketuk kalimat untuk analisis tatabahasa & audio</span>
-          </span>
-          <span>${sentences.length} Kalimat</span>
-        </div>
+      <!-- Top Back Header & Progressive Banner -->
+      <div class="sticky top-0 z-30 bg-surface/90 backdrop-blur-md px-4 py-2.5 flex items-center justify-between border-b border-surface-container/60">
+        <button id="reader-back-btn" class="flex items-center gap-1.5 text-xs font-bold text-text-secondary hover:text-primary transition-colors py-1 px-2.5 rounded-full hover:bg-canvas-secondary">
+          <span class="material-symbols-outlined text-[18px]">arrow_back</span>
+          <span>Kembali</span>
+        </button>
 
-        <!-- Sentences list -->
-        <div class="flex flex-col gap-4 ${state.settings.kanji_font_style === 'gothic' ? 'font-gothic' : 'font-mincho'}">
-          ${sentences.map((sent, idx) => {
+        ${prog && prog.articleId === article.id ? `
+          <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full ${prog.isComplete ? 'bg-green-100 text-green-800' : 'bg-crimson-surface text-primary'} text-[11px] font-bold shadow-sm animate-pulse">
+            <span class="material-symbols-outlined text-[14px]">${prog.isComplete ? 'check_circle' : 'sync'}</span>
+            <span>${prog.isComplete ? 'Analisis teks lengkap!' : `Menganalisis: bagian ${prog.currentChunk} dari ${prog.totalChunks}...`}</span>
+          </div>
+        ` : `
+          <span class="text-[11px] font-medium text-text-muted">Ketuk ruang kosong untuk menu</span>
+        `}
+      </div>
+
+      <!-- Article Reading Content (Clean, natural zero-space typesetting) -->
+      <div id="reader-article-content" class="max-w-2xl w-full mx-auto px-5 pt-8 pb-32 flex flex-col gap-6 cursor-pointer">
+        <!-- Article Header Metadata -->
+        <header class="flex flex-col gap-2 pb-4 border-b border-surface-container/80 cursor-default">
+          <div class="flex items-center gap-2 text-xs font-semibold text-primary">
+            <span>~${estimatedMinutes} menit baca</span>
+            <span>•</span>
+            <span class="text-text-muted font-normal">${charCount} karakter</span>
+          </div>
+          <h1 class="text-2xl sm:text-3xl font-bold text-text-primary ${fontClass} leading-tight tracking-tight">
+            ${article.title}
+          </h1>
+        </header>
+
+        <!-- Sentences Flow -->
+        <div class="flex flex-col gap-5 ${fontClass}">
+          ${sentences.map((sent, sIdx) => {
             const tokens = parseTokens(sent.furigana_payload);
-            const isSelected = state.activeSentenceIndex === idx;
-            const pastelBg = isSelected ? getPastelHighlight(idx) : '';
+            const isExpanded = readerTranslateMode || readerExpandedSentences.has(sent.id);
 
             return `
-              <div class="reader-sentence-row relative group cursor-pointer p-3 rounded-2xl transition-all ${isSelected ? 'shadow-md ring-2 ring-primary/40' : 'hover:bg-canvas-secondary/50'}" style="background-color: ${isSelected ? pastelBg : 'transparent'};" data-index="${idx}" data-sent-id="${sent.id}">
-                ${isSelected ? `
-                  <!-- Floating Selection Toolbar -->
-                  <div class="absolute -top-10 left-4 z-30 flex items-center bg-text-primary text-white rounded-full px-2.5 py-1 shadow-lg gap-2 text-[10px] font-bold">
-                    <button class="btn-inspect-action flex items-center gap-1 hover:text-highlight-yellow active:scale-95" data-action="translate">
-                      <span class="material-symbols-outlined text-[14px]">translate</span>
-                      <span>TERJEMAHKAN</span>
+              <div class="sentence-block flex flex-col gap-1.5 transition-all rounded-xl p-2 hover:bg-canvas-secondary/40" data-sent-id="${sent.id}">
+                <div class="flex items-baseline gap-2">
+                  <!-- Translation trigger icon (visible when translation mode is ON) -->
+                  ${readerTranslateMode ? `
+                    <button class="btn-toggle-inline-trans shrink-0 flex items-center justify-center w-6 h-6 rounded-md ${isExpanded ? 'bg-primary text-white' : 'bg-canvas-secondary text-text-secondary hover:text-primary'} text-[11px] font-bold transition-colors" data-sent-id="${sent.id}" title="Toggle terjemahan">
+                      あA
                     </button>
-                    <div class="w-px h-3 bg-white/20"></div>
-                    <button class="btn-inspect-action flex items-center gap-1 hover:text-highlight-yellow active:scale-95" data-action="audio">
-                      <span class="material-symbols-outlined text-[14px]">volume_up</span>
-                      <span>AUDIO</span>
-                    </button>
-                    <div class="w-px h-3 bg-white/20"></div>
-                    <button class="btn-inspect-action flex items-center gap-1 hover:text-highlight-yellow active:scale-95" data-action="save">
-                      <span class="material-symbols-outlined text-[14px]">bookmark</span>
-                      <span>SIMPAN</span>
-                    </button>
-                  </div>
-                ` : ''}
+                  ` : ''}
 
-                <div class="text-lg text-text-primary leading-[3.2rem]">
-                  ${buildRubyHtml(tokens, state.settings.furigana_mode)}
+                  <!-- Japanese Tokens Row with Zero-space natural typography -->
+                  <div class="japanese-sentence leading-[2.6em] text-text-primary tracking-normal flex-1 flex flex-wrap items-end" style="word-spacing: 0;">
+                    ${tokens.length > 0 ? tokens.map((token, tIdx) => {
+                      const hasReading = token.reading && token.reading !== token.surface && !['、', '。', '！', '？', '「', '」', '（', '）', '・'].includes(token.surface);
+                      const tokenJson = encodeURIComponent(JSON.stringify(token));
+                      const isFuriOn = readerFuriganaMode === 'always';
+
+                      if (isFuriOn && hasReading) {
+                        return `<ruby class="token-word group inline-block cursor-pointer hover:bg-highlight-yellow rounded px-0 py-0.5 transition-colors" data-token="${tokenJson}" data-sent-id="${sent.id}">${token.surface}<rt class="text-primary font-semibold text-[10px] select-none">${token.reading}</rt></ruby>`;
+                      } else if (isFuriOn && !hasReading) {
+                        return `<span class="token-word inline-block cursor-pointer hover:bg-highlight-yellow rounded px-0 py-0.5 transition-colors" data-token="${tokenJson}" data-sent-id="${sent.id}"><span class="block h-[12px]"></span>${token.surface}</span>`;
+                      } else {
+                        return `<span class="token-word inline-block cursor-pointer hover:bg-highlight-yellow rounded px-0 py-0.5 transition-colors" data-token="${tokenJson}" data-sent-id="${sent.id}">${token.surface}</span>`;
+                      }
+                    }).join('') : `<span>${sent.original_text}</span>`}
+                  </div>
                 </div>
 
-                ${sent.needs_deep_study ? `
-                  <div class="mt-1 flex items-center gap-1 text-[10px] font-bold text-secondary">
-                    <span class="material-symbols-outlined text-[12px]">flag</span>
-                    <span>Perlu pengulangan intensif (Inspeksi: ${sent.inspection_count}x)</span>
+                <!-- Smooth Inline Translation directly below the sentence -->
+                ${isExpanded && sent.translated_text ? `
+                  <div class="sentence-translation font-sans text-xs text-[#6E6262] leading-relaxed pl-8 pt-0.5 transition-all">
+                    ${sent.translated_text}
                   </div>
                 ` : ''}
               </div>
             `;
           }).join('')}
+        </div>
+
+        <!-- End of Article Footer Actions -->
+        <footer class="mt-12 pt-6 border-t border-surface-container flex flex-col gap-3 cursor-default">
+          <button id="reader-finish-btn" class="w-full py-3.5 px-6 rounded-xl bg-[#22C55E] text-white font-bold text-sm shadow-md hover:bg-[#1eb354] active:scale-95 transition-all flex items-center justify-center gap-2">
+            <span class="material-symbols-outlined text-[18px]">check</span>
+            <span>Selesai Membaca</span>
+          </button>
+
+          <button id="reader-show-words-btn" class="w-full py-3 px-6 rounded-xl border border-surface-container bg-surface-card text-text-secondary font-bold text-xs hover:border-primary/40 active:scale-95 transition-all flex items-center justify-center gap-2">
+            <span>Lihat Kata yang Dicari (Flashcard)</span>
+          </button>
+        </footer>
+      </div>
+
+      <!-- Floating Minimalist Pill Bar (Appears on clicking background / toggle) -->
+      <div id="reader-floating-pill" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 ${readerShowPillBar ? 'flex' : 'hidden'} items-center gap-1.5 bg-[#2D2424]/95 text-white backdrop-blur-lg px-4 py-2 rounded-full shadow-2xl transition-all border border-white/10 select-none">
+        <!-- Toggle Furigana -->
+        <button id="pill-furi-btn" class="px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${readerFuriganaMode === 'always' ? 'bg-primary text-white shadow-sm' : 'text-white/70 hover:text-white'}">
+          ふりがな
+        </button>
+
+        <div class="w-px h-3.5 bg-white/20"></div>
+
+        <!-- Toggle Translate -->
+        <button id="pill-trans-btn" class="px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 transition-colors ${readerTranslateMode ? 'bg-primary text-white shadow-sm' : 'text-white/70 hover:text-white'}">
+          <span>あA</span>
+          <span class="text-[11px] font-medium">Terjemah</span>
+        </button>
+
+        <div class="w-px h-3.5 bg-white/20"></div>
+
+        <!-- Font Zoom Steppers -->
+        <div class="flex items-center gap-1 px-1">
+          <button id="pill-font-minus" class="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs text-white/70 hover:text-white active:scale-90">A-</button>
+          <span class="text-[10px] text-white/60 font-mono">${readerFontSizeSp}</span>
+          <button id="pill-font-plus" class="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs text-white/70 hover:text-white active:scale-90">A+</button>
         </div>
       </div>
     </div>
@@ -487,919 +304,501 @@ function renderReader(state: AppState): string {
 }
 
 // -------------------------------------------------------------
-// 5. RENDER VOCABULARY SRS DECK
+// 4. RENDER FLASHCARD SRS (INTERACTIVE 3D FLIP CARD)
 // -------------------------------------------------------------
-function renderVocab(state: AppState): string {
+function renderFlashcards(state: AppState): string {
   let list = state.vocabularies;
-  if (selectedVocabFilter === 'Baru') {
-    list = list.filter(v => v.mastery_status === 0);
-  } else if (selectedVocabFilter === 'Dipelajari') {
+  if (selectedFlashcardFilter === 'Perlu Dipelajari') {
+    list = list.filter(v => v.mastery_status === 0 || v.review_count === 0);
+  } else if (selectedFlashcardFilter === 'Sedang Diulang') {
     list = list.filter(v => v.mastery_status === 1);
-  } else if (selectedVocabFilter === 'Dikuasai') {
+  } else if (selectedFlashcardFilter === 'Dikuasai') {
     list = list.filter(v => v.mastery_status === 2);
   }
 
+  if (currentFlashcardIndex >= list.length) {
+    currentFlashcardIndex = Math.max(0, list.length - 1);
+  }
+
+  const currentVocab = list[currentFlashcardIndex];
+  const fontClass = state.settings.kanji_font_style === 'gothic' ? 'font-gothic' : 'font-mincho';
+
+  // Find original context sentence
+  const allSentences = state.articles.flatMap(a => a.sentences || []);
+  const contextSentence = currentVocab
+    ? (allSentences.find(s => s.id === currentVocab.sentence_id) || allSentences.find(s => s.original_text.includes(currentVocab.kanji)))
+    : null;
+
   return `
-    <div class="flex flex-col gap-4">
+    <div class="flex flex-col gap-4 max-w-xl mx-auto">
+      <!-- Top Header -->
       <div class="flex items-center justify-between">
         <div>
-          <span class="text-[10px] font-bold uppercase tracking-wider text-text-muted">Koleksi Kata & Flashcard</span>
-          <h2 class="text-lg font-bold text-text-primary tracking-tight">Dek Spaced Repetition (SRS)</h2>
+          <span class="text-[10px] font-bold uppercase tracking-wider text-text-muted">DEK KOSAKATA SRS</span>
+          <h2 class="text-xl font-bold text-text-primary tracking-tight">Latihan Flashcard</h2>
         </div>
-        <span class="text-xs px-2.5 py-1 rounded-full bg-crimson-surface text-primary font-bold">${state.vocabularies.length} Kata</span>
+        ${list.length > 0 ? `
+          <span class="text-xs px-3 py-1 rounded-full bg-crimson-surface text-primary font-bold">
+            ${currentFlashcardIndex + 1} / ${list.length}
+          </span>
+        ` : ''}
       </div>
 
-      <!-- Mastery Filters -->
+      <!-- Filters -->
       <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-        ${['Semua', 'Baru', 'Dipelajari', 'Dikuasai'].map(f => {
-          const isActive = selectedVocabFilter === f;
-          return `
-            <button class="vocab-filter-pill px-3.5 py-1.5 rounded-full text-xs font-semibold shadow-sm transition-all ${isActive ? 'bg-primary text-white' : 'bg-surface-card border border-surface-container text-text-secondary'}" data-filter="${f}">
-              ${f}
-            </button>
-          `;
-        }).join('')}
+        ${['Semua', 'Perlu Dipelajari', 'Sedang Diulang', 'Dikuasai'].map(f => `
+          <button class="fc-filter-pill px-3.5 py-1.5 rounded-full text-xs font-semibold shadow-sm transition-all shrink-0 ${selectedFlashcardFilter === f ? 'bg-primary text-white' : 'bg-surface-card border border-surface-container text-text-secondary hover:border-primary/50'}" data-filter="${f}">
+            ${f}
+          </button>
+        `).join('')}
       </div>
 
-      <!-- Vocab List -->
-      <div class="flex flex-col gap-3">
-        ${list.length === 0 ? `
-          <div class="py-12 flex flex-col items-center justify-center text-center text-text-muted bg-surface-card rounded-2xl border border-surface-container p-6">
-            <span class="material-symbols-outlined text-4xl mb-2 text-primary/40">style</span>
-            <p class="text-sm font-semibold">Tidak ada kosakata di kategori ini.</p>
-            <p class="text-xs text-text-muted mt-1">Buka Reader Studio dan simpan kata dari bacaan.</p>
-          </div>
-        ` : list.map(v => {
-          const masteryLabel = v.mastery_status === 0 ? 'Baru' : v.mastery_status === 1 ? 'Dipelajari' : 'Dikuasai';
-          const masteryBg = v.mastery_status === 0 ? 'bg-highlight-blue text-text-primary' : v.mastery_status === 1 ? 'bg-highlight-yellow text-primary' : 'bg-highlight-mint text-primary';
-
-          return `
-            <div class="p-4 rounded-2xl bg-surface-card border border-surface-container shadow-sm flex items-center justify-between gap-3">
-              <div class="flex items-center gap-3 min-w-0">
-                <button class="btn-play-vocab-audio w-10 h-10 rounded-xl bg-canvas-secondary flex items-center justify-center text-primary shrink-0 hover:bg-crimson-surface transition-colors" data-kanji="${v.kanji}">
-                  <span class="material-symbols-outlined text-[20px]">volume_up</span>
+      <!-- Main Card Container -->
+      ${list.length === 0 ? `
+        <div class="py-20 flex flex-col items-center justify-center text-center text-text-muted bg-surface-card rounded-3xl border border-surface-container p-6 shadow-sm">
+          <span class="material-symbols-outlined text-5xl mb-3 text-primary/40">style</span>
+          <h3 class="text-base font-bold text-text-primary">Belum ada kartu di kategori ini</h3>
+          <p class="text-xs text-text-muted mt-1.5 max-w-xs leading-relaxed">
+            Ketuk kata saat membaca di Reader Studio untuk menyimpannya ke dek flashcard ini secara otomatis.
+          </p>
+        </div>
+      ` : `
+        <!-- 3D Interactive Flip Card -->
+        <div class="perspective-1000 w-full min-h-[380px] cursor-pointer" id="flashcard-flip-container">
+          <div id="flashcard-flipper" class="relative w-full h-full min-h-[380px] rounded-3xl transition-transform duration-500 transform-style-3d ${isFlashcardFlipped ? 'rotate-y-180' : ''}">
+            
+            <!-- SISI DEPAN (FRONT) -->
+            <div class="absolute inset-0 backface-hidden bg-surface-card rounded-3xl p-6 border border-surface-container shadow-sm flex flex-col justify-between">
+              <div class="flex items-center justify-between">
+                <span class="px-2.5 py-1 rounded-full bg-crimson-surface text-primary text-xs font-bold">
+                  JLPT ${currentVocab.jlpt_level || 'N5'}
+                </span>
+                <button class="btn-play-fc-audio w-9 h-9 rounded-full bg-canvas-secondary flex items-center justify-center text-primary hover:bg-crimson-surface transition-colors" data-kanji="${currentVocab.kanji}">
+                  <span class="material-symbols-outlined text-[18px]">volume_up</span>
                 </button>
-                <div class="flex flex-col min-w-0">
-                  <div class="flex items-baseline gap-2">
-                    <span class="font-mincho font-bold text-lg text-text-primary">${v.kanji}</span>
-                    <span class="text-xs text-text-muted">${v.reading}</span>
-                  </div>
-                  <span class="text-xs text-text-secondary truncate">${v.meaning}</span>
-                </div>
               </div>
 
-              <div class="flex items-center gap-2 shrink-0">
-                <div class="flex flex-col items-end">
-                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${masteryBg}">${masteryLabel}</span>
-                  <span class="text-[10px] text-text-muted mt-0.5">${v.review_count}x tinjauan</span>
+              <!-- Kanji Besar -->
+              <div class="flex flex-col items-center justify-center text-center my-auto py-8">
+                <div class="text-5xl font-bold text-text-primary ${fontClass} tracking-wider">
+                  ${currentVocab.kanji}
                 </div>
-                <button class="btn-review-vocab p-1.5 rounded-full text-text-muted hover:text-primary hover:bg-canvas-secondary transition-colors" data-id="${v.id}" title="Review Kartu">
-                  <span class="material-symbols-outlined text-[18px]">rate_review</span>
+                <span class="text-xs text-text-muted mt-3 font-medium">Tinjauan: ${currentVocab.review_count}x</span>
+              </div>
+
+              <!-- Bottom Hint -->
+              <div class="flex items-center justify-center gap-1.5 text-xs text-text-muted font-medium pt-2 border-t border-surface-container/60">
+                <span class="material-symbols-outlined text-[16px]">touch_app</span>
+                <span>Ketuk kartu untuk melihat arti & konteks</span>
+              </div>
+            </div>
+
+            <!-- SISI BELAKANG (BACK) -->
+            <div class="absolute inset-0 backface-hidden rotate-y-180 bg-surface-card rounded-3xl p-6 border border-surface-container shadow-md flex flex-col justify-between">
+              <div class="flex flex-col gap-4">
+                <!-- Reading & Audio -->
+                <div class="flex items-center justify-between pb-3 border-b border-surface-container">
+                  <div class="flex flex-col">
+                    <span class="text-xl font-bold text-primary ${fontClass}">${currentVocab.reading}</span>
+                    <span class="text-xs text-text-muted font-mono">${currentVocab.part_of_speech} • ${currentVocab.kanji}</span>
+                  </div>
+                  <button class="btn-play-fc-audio w-9 h-9 rounded-full bg-canvas-secondary flex items-center justify-center text-primary hover:bg-crimson-surface transition-colors" data-kanji="${currentVocab.kanji}">
+                    <span class="material-symbols-outlined text-[18px]">volume_up</span>
+                  </button>
+                </div>
+
+                <!-- Meaning -->
+                <div class="bg-canvas-secondary rounded-2xl p-3.5">
+                  <span class="text-[10px] font-bold uppercase tracking-wider text-primary">ARTI (INDONESIA)</span>
+                  <p class="text-sm font-bold text-text-primary mt-0.5 leading-snug">${currentVocab.meaning}</p>
+                </div>
+
+                <!-- Context Sentence from Reading -->
+                ${contextSentence ? `
+                  <div class="bg-highlight-yellow/40 rounded-2xl p-3 border border-highlight-yellow flex flex-col gap-1">
+                    <div class="flex items-center justify-between text-[10px] font-bold text-primary">
+                      <span>📝 Konteks Kalimat Asli:</span>
+                      <button class="btn-play-fc-audio text-primary hover:scale-110 transition-transform" data-kanji="${contextSentence.original_text}">
+                        <span class="material-symbols-outlined text-[14px]">volume_up</span>
+                      </button>
+                    </div>
+                    <p class="text-xs text-text-primary ${fontClass} font-medium leading-relaxed">${contextSentence.original_text}</p>
+                    ${contextSentence.translated_text ? `
+                      <p class="text-[11px] text-text-secondary leading-snug">${contextSentence.translated_text}</p>
+                    ` : ''}
+                  </div>
+                ` : ''}
+              </div>
+
+              <!-- SRS Action Buttons (Lupa & Ingat) -->
+              <div class="grid grid-cols-2 gap-3 pt-3">
+                <button class="btn-srs-rating py-3 px-4 rounded-xl bg-crimson-surface text-primary font-bold text-xs hover:bg-primary hover:text-white transition-all active:scale-95" data-quality="1" data-id="${currentVocab.id}">
+                  🔴 Lupa
                 </button>
-                <button class="btn-delete-vocab p-1.5 rounded-full text-text-muted hover:text-error hover:bg-error-container/30 transition-colors" data-id="${v.id}" title="Hapus Kata">
-                  <span class="material-symbols-outlined text-[18px]">delete</span>
+                <button class="btn-srs-rating py-3 px-4 rounded-xl bg-[#22C55E] text-white font-bold text-xs hover:bg-[#1eb354] transition-all active:scale-95 shadow-sm" data-quality="4" data-id="${currentVocab.id}">
+                  🟢 Ingat
                 </button>
               </div>
             </div>
-          `;
-        }).join('')}
-      </div>
+
+          </div>
+        </div>
+
+        <!-- Previous / Next Controls -->
+        <div class="flex items-center justify-between pt-2">
+          <button id="fc-prev-btn" class="w-10 h-10 rounded-full bg-surface-card border border-surface-container flex items-center justify-center text-text-secondary hover:text-primary transition-colors disabled:opacity-40" ${currentFlashcardIndex === 0 ? 'disabled' : ''}>
+            <span class="material-symbols-outlined text-[20px]">chevron_left</span>
+          </button>
+
+          <span class="text-xs text-text-muted font-medium">Ketuk kartu untuk membalik</span>
+
+          <button id="fc-next-btn" class="w-10 h-10 rounded-full bg-surface-card border border-surface-container flex items-center justify-center text-text-secondary hover:text-primary transition-colors disabled:opacity-40" ${currentFlashcardIndex >= list.length - 1 ? 'disabled' : ''}>
+            <span class="material-symbols-outlined text-[20px]">chevron_right</span>
+          </button>
+        </div>
+      `}
     </div>
   `;
 }
 
 // -------------------------------------------------------------
-// 6. RENDER ANALYTICS
+// 5. RENDER KEMAJUAN (ANALYTICS)
 // -------------------------------------------------------------
 function renderAnalytics(state: AppState): string {
   const stats = state.stats;
+  const totalChars = state.articles.reduce((acc, a) => acc + a.raw_text.length, 0);
+  const totalArticles = state.articles.length;
+  const totalVocab = state.vocabularies.length;
+  const mastered = state.vocabularies.filter(v => v.mastery_status === 2).length;
 
   return `
     <div class="flex flex-col gap-4">
-      <div class="flex items-center justify-between">
-        <div>
-          <span class="text-[10px] font-bold uppercase tracking-wider text-text-muted">Statistik Belajar</span>
-          <h2 class="text-lg font-bold text-text-primary tracking-tight">Progres & Wawasan</h2>
-        </div>
-        <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-crimson-surface text-primary text-xs font-semibold">
-          <span class="material-symbols-outlined text-[14px]">schedule</span>
-          <span>7 Hari Terakhir</span>
-        </div>
+      <div>
+        <span class="text-[10px] font-bold uppercase tracking-wider text-text-muted">STATISTIK BELAJAR</span>
+        <h2 class="text-xl font-bold text-text-primary tracking-tight">Kemajuan Membaca</h2>
       </div>
 
-      <!-- Ringkasan Performa: 2 Kartu Metrik -->
+      <!-- Quick Metrics Grid -->
       <div class="grid grid-cols-2 gap-3">
-        <div class="bg-surface-card p-4 rounded-2xl border border-surface-container shadow-sm flex flex-col justify-between">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-xs text-text-secondary font-medium">Waktu Baca</span>
-            <div class="w-7 h-7 rounded-full bg-canvas-secondary flex items-center justify-center text-primary">
-              <span class="material-symbols-outlined text-[16px]">timer</span>
-            </div>
-          </div>
-          <div>
-            <div class="text-2xl font-bold text-text-primary tracking-tight leading-none mb-1">${stats.readingTimeHours} <span class="text-xs font-normal text-text-secondary">Jam</span></div>
-            <div class="inline-flex items-center gap-1 text-[11px] text-primary font-semibold">
-              <span class="material-symbols-outlined text-[13px]">trending_up</span>
-              <span>+18% mgg ini</span>
-            </div>
-          </div>
+        <div class="bg-surface-card rounded-2xl p-4 border border-surface-container shadow-sm flex flex-col gap-1">
+          <span class="text-[11px] text-text-muted font-medium">Total Bahan Bacaan</span>
+          <span class="text-2xl font-bold text-primary">${totalArticles}</span>
+          <span class="text-[10px] text-text-muted">${totalChars} karakter terbaca</span>
         </div>
 
-        <div class="bg-surface-card p-4 rounded-2xl border border-surface-container shadow-sm flex flex-col justify-between">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-xs text-text-secondary font-medium">Dikuasai</span>
-            <div class="w-7 h-7 rounded-full bg-canvas-secondary flex items-center justify-center text-secondary">
-              <span class="material-symbols-outlined text-[16px]">check_circle</span>
-            </div>
-          </div>
-          <div>
-            <div class="text-2xl font-bold text-text-primary tracking-tight leading-none mb-1">${stats.masteredSentences} <span class="text-xs font-normal text-text-secondary">Kalimat</span></div>
-            <div class="inline-flex items-center gap-1 text-[11px] text-secondary font-semibold">
-              <span class="material-symbols-outlined text-[13px]">arrow_upward</span>
-              <span>12 selesai hari ini</span>
-            </div>
-          </div>
+        <div class="bg-surface-card rounded-2xl p-4 border border-surface-container shadow-sm flex flex-col gap-1">
+          <span class="text-[11px] text-text-muted font-medium">Kosakata Tersimpan</span>
+          <span class="text-2xl font-bold text-primary">${totalVocab}</span>
+          <span class="text-[10px] text-text-muted">${mastered} kata dikuasai</span>
         </div>
       </div>
 
-      <!-- Visualisasi Grafik Intensitas Mingguan -->
-      <div class="bg-surface-card p-4 rounded-2xl border border-surface-container shadow-sm flex flex-col gap-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <div class="w-6 h-6 rounded-full bg-crimson-surface flex items-center justify-center text-primary">
-              <span class="material-symbols-outlined text-[14px]">bar_chart</span>
-            </div>
-            <span class="text-sm font-bold text-text-primary">Ritme Mingguan</span>
-          </div>
-          <span class="text-[11px] text-text-muted">Target: 30 mnt/hari</span>
-        </div>
-
-        <!-- Weekly Bar Chart -->
-        <div class="h-28 flex items-end justify-between gap-2 px-1 pt-2">
-          ${stats.weeklyStudyMinutes.map(item => {
-            const heightPercent = Math.min(100, Math.round((item.minutes / 65) * 100));
-            const isPeak = item.minutes >= 60;
+      <!-- Weekly Study Chart -->
+      <div class="bg-surface-card rounded-2xl p-4 border border-surface-container shadow-sm flex flex-col gap-3">
+        <span class="text-xs font-bold text-text-primary uppercase tracking-wider">Aktivitas Mingguan</span>
+        <div class="flex items-end justify-between h-28 pt-4 gap-2">
+          ${stats.weeklyStudyMinutes.map(m => {
+            const h = Math.min(100, Math.max(15, (m.minutes / 65) * 100));
             return `
-              <div class="flex-1 flex flex-col items-center gap-1">
-                <span class="text-[10px] text-text-muted">${item.minutes}m</span>
-                <div class="w-full bg-canvas-secondary rounded-t-full h-20 flex items-end">
-                  <div class="w-full rounded-t-full transition-all duration-300 ${isPeak ? 'bg-primary shadow-sm' : 'bg-crimson-deep/40'}" style="height: ${heightPercent}%;"></div>
-                </div>
-                <span class="text-[10px] font-bold text-text-secondary">${item.day}</span>
+              <div class="flex flex-col items-center gap-1 flex-1">
+                <div class="w-full bg-crimson-surface rounded-t-lg transition-all" style="height: ${h}%;"></div>
+                <span class="text-[10px] text-text-muted font-semibold">${m.day}</span>
               </div>
             `;
           }).join('')}
         </div>
       </div>
-
-      <!-- JLPT Distribution -->
-      <div class="bg-surface-card p-4 rounded-2xl border border-surface-container shadow-sm flex flex-col gap-2.5">
-        <span class="text-sm font-bold text-text-primary">Distribusi Level JLPT Kosakata</span>
-        <div class="grid grid-cols-5 gap-2 text-center">
-          ${Object.entries(stats.jlptDistribution).map(([level, count]) => `
-            <div class="p-2.5 rounded-xl bg-canvas-secondary flex flex-col items-center">
-              <span class="text-xs font-bold text-primary">${level}</span>
-              <span class="text-sm font-bold text-text-primary">${count}</span>
-            </div>
-          `).join('')}
-        </div>
-      </div>
     </div>
   `;
 }
 
 // -------------------------------------------------------------
-// 7. RENDER SETTINGS & BYOK
+// 6. RENDER PENGATURAN (CLEAN, NO DEEPSEEK KEY / CLOUDFLARE URL)
 // -------------------------------------------------------------
 function renderSettings(state: AppState): string {
   const s = state.settings;
 
   return `
     <div class="flex flex-col gap-4">
-      <!-- Profile Banner -->
+      <!-- Profile Header -->
       <div class="rounded-3xl bg-surface-card p-4 border border-surface-container shadow-sm flex items-center gap-3">
-        <img src="assets/logo.png" alt="Profile" class="w-14 h-14 rounded-full object-cover p-0.5 bg-crimson-surface shadow-sm shrink-0">
+        <div class="w-12 h-12 rounded-full bg-crimson-surface text-primary flex items-center justify-center font-bold text-lg font-mincho">
+          読
+        </div>
         <div class="flex flex-col min-w-0 flex-1">
-          <h3 class="font-bold text-base text-text-primary truncate">Aoi Tanaka (田中 葵)</h3>
-          <p class="text-xs text-text-secondary mt-0.5 flex items-center gap-1.5 flex-wrap">
-            <span class="bg-crimson-surface text-primary font-bold px-2 py-0.5 rounded-full text-[10px]">N3 CHALLENGER</span>
-            <span class="text-secondary font-medium text-[11px]">🔥 42 Hari Beruntun</span>
-          </p>
+          <h3 class="font-bold text-base text-text-primary">Pembelajar Bahasa Jepang</h3>
+          <span class="text-xs text-text-muted">Komorebi Reader AI</span>
         </div>
       </div>
 
-      <!-- SECTION 1: Reading Preferences -->
+      <!-- Tampilan Huruf & Furigana -->
       <div class="bg-surface-card rounded-2xl p-4 border border-surface-container shadow-sm flex flex-col gap-3">
-        <div class="flex items-center gap-2 text-xs font-bold text-primary uppercase tracking-wider">
-          <span class="material-symbols-outlined text-[16px]">menu_book</span>
-          <span>Preferensi Tampilan Furigana</span>
-        </div>
+        <span class="text-xs font-bold text-primary uppercase tracking-wider">Tampilan Teks & Furigana</span>
 
-        <div class="grid grid-cols-3 gap-2" id="settings-furigana-picker">
-          <button class="furi-setting-btn p-2 rounded-xl text-center text-xs font-bold transition-all ${s.furigana_mode === 'always' ? 'bg-primary text-white shadow-sm' : 'bg-canvas-secondary text-text-secondary'}" data-mode="always">
-            Selalu Tampil
-          </button>
-          <button class="furi-setting-btn p-2 rounded-xl text-center text-xs font-bold transition-all ${s.furigana_mode === 'tap' ? 'bg-primary text-white shadow-sm' : 'bg-canvas-secondary text-text-secondary'}" data-mode="tap">
-            Ketuk Tampil
-          </button>
-          <button class="furi-setting-btn p-2 rounded-xl text-center text-xs font-bold transition-all ${s.furigana_mode === 'off' ? 'bg-primary text-white shadow-sm' : 'bg-canvas-secondary text-text-secondary'}" data-mode="off">
-            Nonaktif
-          </button>
-        </div>
-
-        <!-- Font Style -->
-        <div class="flex flex-col gap-1.5 pt-1">
-          <label class="text-xs font-semibold text-text-primary">Gaya Huruf Kanji (Font Style)</label>
+        <div class="flex flex-col gap-1.5">
+          <label class="text-xs font-semibold text-text-primary">Gaya Huruf Kanji</label>
           <div class="grid grid-cols-2 gap-2" id="settings-font-picker">
-            <button class="font-setting-btn p-2.5 rounded-xl border text-left flex items-center justify-between text-xs transition-all ${s.kanji_font_style === 'mincho' ? 'border-primary bg-crimson-surface text-primary font-bold' : 'border-surface-container bg-canvas-secondary text-text-secondary'}" data-font="mincho">
-              <span>明朝体 (Mincho Serif)</span>
+            <button class="font-setting-btn p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between ${s.kanji_font_style === 'mincho' ? 'border-primary bg-crimson-surface text-primary' : 'border-surface-container bg-canvas-secondary text-text-secondary'}" data-font="mincho">
+              <span>明朝体 (Mincho)</span>
               <span class="material-symbols-outlined text-[16px]">${s.kanji_font_style === 'mincho' ? 'check' : ''}</span>
             </button>
-            <button class="font-setting-btn p-2.5 rounded-xl border text-left flex items-center justify-between text-xs transition-all ${s.kanji_font_style === 'gothic' ? 'border-primary bg-crimson-surface text-primary font-bold' : 'border-surface-container bg-canvas-secondary text-text-secondary'}" data-font="gothic">
-              <span>ゴシック (Gothic Sans)</span>
+            <button class="font-setting-btn p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between ${s.kanji_font_style === 'gothic' ? 'border-primary bg-crimson-surface text-primary' : 'border-surface-container bg-canvas-secondary text-text-secondary'}" data-font="gothic">
+              <span>ゴシック (Gothic)</span>
               <span class="material-symbols-outlined text-[16px]">${s.kanji_font_style === 'gothic' ? 'check' : ''}</span>
             </button>
           </div>
         </div>
       </div>
 
-      <!-- SECTION 2: Audio & TTS -->
+      <!-- Audio Speed -->
       <div class="bg-surface-card rounded-2xl p-4 border border-surface-container shadow-sm flex flex-col gap-3">
-        <div class="flex items-center gap-2 text-xs font-bold text-primary uppercase tracking-wider">
-          <span class="material-symbols-outlined text-[16px]">record_voice_over</span>
-          <span>Audio & Kecepatan Suara</span>
-        </div>
-
         <div class="flex items-center justify-between">
-          <label class="text-xs font-medium text-text-primary">Kecepatan Pelafalan (Speed)</label>
-          <div class="flex items-center gap-2">
-            <span id="speed-indicator" class="text-xs font-bold text-primary bg-crimson-surface px-2 py-0.5 rounded-full">${s.tts_speed.toFixed(1)}x</span>
-            <button id="settings-preview-audio" class="w-6 h-6 rounded-full bg-crimson-surface text-primary flex items-center justify-center hover:bg-primary hover:text-white transition-colors">
-              <span class="material-symbols-outlined text-[14px]">volume_up</span>
-            </button>
-          </div>
+          <span class="text-xs font-bold text-primary uppercase tracking-wider">Kecepatan Suara (Audio)</span>
+          <span id="speed-indicator" class="text-xs font-bold text-primary bg-crimson-surface px-2 py-0.5 rounded-full">${s.tts_speed.toFixed(1)}x</span>
         </div>
-
         <input id="settings-speed-range" type="range" min="0.5" max="1.5" step="0.1" value="${s.tts_speed}" class="w-full accent-primary h-1.5 bg-canvas-secondary rounded-lg appearance-none cursor-pointer">
       </div>
 
-      <!-- SECTION 3: DeepSeek BYOK Key -->
+      <!-- Cloudflare Edge Sync Status -->
       <div class="bg-surface-card rounded-2xl p-4 border border-surface-container shadow-sm flex flex-col gap-3">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2 text-xs font-bold text-primary uppercase tracking-wider">
-            <span class="material-symbols-outlined text-[16px]">key</span>
-            <span>API DeepSeek AI (BYOK)</span>
+            <span class="material-symbols-outlined text-[18px]">cloud_sync</span>
+            <span>Sinkronisasi Cloudflare</span>
           </div>
-          <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-highlight-mint text-primary">ENCRYPTED</span>
+          <span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-green-100 text-green-800">TERHUBUNG</span>
+        </div>
+        <p class="text-xs text-text-secondary leading-relaxed">
+          Pencadangan cloud untuk koleksi bacaan, flashcard, dan analisis kecerdasan buatan otomatis di edge network.
+        </p>
+        <div class="flex items-center justify-between pt-1">
+          <button id="settings-sync-btn" class="px-4 py-2 rounded-full bg-primary text-white text-xs font-bold shadow-sm hover:bg-primary-container active:scale-95 transition-all flex items-center gap-1.5">
+            <span class="material-symbols-outlined text-[16px]">sync</span>
+            <span>Sinkronkan Sekarang</span>
+          </button>
+          <span class="text-xs font-semibold text-primary">Status: ${state.syncStatus}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// -------------------------------------------------------------
+// 7. RENDER ADD TEXT MODAL (SCROLLABLE & NON-BLOCKING)
+// -------------------------------------------------------------
+function renderAddTextModal(): string {
+  return `
+    <div id="modal-backdrop" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div class="bg-surface-card w-full max-w-lg rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between pb-2 border-b border-surface-container">
+          <h3 class="font-bold text-base text-text-primary">Tambah Bahan Bacaan Baru</h3>
+          <button id="modal-close-btn" class="w-8 h-8 rounded-full flex items-center justify-center text-text-muted hover:text-primary">
+            <span class="material-symbols-outlined text-[20px]">close</span>
+          </button>
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <label class="text-xs text-text-secondary">Kunci API DeepSeek V3 (Opsional - Kunci Pribadi)</label>
-          <div class="relative flex items-center">
-            <input id="deepseek-key-input" type="password" placeholder="sk-deepseek-..." value="${s.deepseek_api_key || ''}" class="w-full bg-canvas-secondary text-text-primary text-xs rounded-xl py-2.5 px-3 pr-20 focus:outline-none focus:ring-1 focus:ring-primary font-mono">
-            <button id="btn-save-key" class="absolute right-1.5 px-3 py-1 bg-primary text-white rounded-lg text-xs font-bold active:scale-95 transition-all">
-              Simpan
+          <label class="text-xs font-semibold text-text-secondary">Judul Catatan (Opsional)</label>
+          <input id="modal-title-input" type="text" placeholder="Misal: Cerita Kafe Tokyo" class="w-full bg-surface border border-surface-container rounded-xl py-2 px-3 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary">
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label class="text-xs font-semibold text-text-secondary">Teks Bahasa Jepang</label>
+          <textarea id="modal-text-input" rows="6" placeholder="Tempel atau ketik teks Jepang di sini..." class="w-full max-h-56 bg-surface border border-surface-container rounded-xl p-3 text-sm text-text-primary font-mincho placeholder:text-text-muted focus:outline-none focus:border-primary leading-relaxed resize-none overflow-y-auto"></textarea>
+        </div>
+
+        <button id="modal-submit-btn" class="w-full py-3.5 px-6 rounded-full bg-primary text-white font-bold text-xs shadow-md hover:bg-primary-container active:scale-95 transition-all flex items-center justify-center gap-2 mt-2">
+          <span class="material-symbols-outlined text-[18px]">menu_book</span>
+          <span>Simpan & Buka Bacaan</span>
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+// -------------------------------------------------------------
+// 8. RENDER WORD INSPECTION MODAL
+// -------------------------------------------------------------
+function renderWordInspectionModal(): string {
+  if (!inspectedToken) return '';
+  const token = inspectedToken;
+  const sentence = inspectedSentence;
+  const grammarPoints = sentence ? parseGrammarPoints(sentence.grammar_analysis) : [];
+
+  return `
+    <div id="word-modal-backdrop" class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end justify-center">
+      <div class="bg-surface-card w-full max-w-lg rounded-t-3xl p-5 shadow-2xl flex flex-col gap-4 max-h-[85vh] overflow-y-auto pb-8">
+        <!-- Header: Word, Reading, Audio -->
+        <div class="flex items-start justify-between pb-3 border-b border-surface-container">
+          <div class="flex flex-col">
+            <div class="flex items-baseline gap-2.5">
+              <span class="text-3xl font-bold text-primary font-mincho">${token.surface}</span>
+              ${token.reading && token.reading !== token.surface ? `
+                <span class="text-lg font-semibold text-text-secondary">${token.reading}</span>
+              ` : ''}
+            </div>
+            ${token.romaji ? `<span class="text-xs text-text-muted font-mono mt-0.5">${token.romaji}</span>` : ''}
+            <div class="flex items-center gap-1.5 mt-2">
+              ${token.jlpt && token.jlpt !== '-' ? `
+                <span class="px-2 py-0.5 rounded-full bg-crimson-surface text-primary font-bold text-[10px]">JLPT ${token.jlpt}</span>
+              ` : ''}
+              ${token.pos ? `
+                <span class="px-2 py-0.5 rounded-full bg-canvas-secondary text-text-secondary font-semibold text-[10px] uppercase">${token.pos}</span>
+              ` : ''}
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button class="btn-play-word-audio w-11 h-11 rounded-full bg-crimson-surface text-primary flex items-center justify-center hover:bg-primary hover:text-white transition-colors" data-text="${token.surface}">
+              <span class="material-symbols-outlined text-[22px]">volume_up</span>
+            </button>
+            <button id="word-modal-close" class="w-8 h-8 rounded-full flex items-center justify-center text-text-muted hover:text-primary">
+              <span class="material-symbols-outlined text-[20px]">close</span>
             </button>
           </div>
-          <p class="text-[11px] text-text-muted">
-            Jika dikosongkan, sistem otomatis menggunakan mesin morfologi deterministik bawaan yang cepat dan akurat.
-          </p>
         </div>
-      </div>
 
-      <!-- SECTION 4: Cloud Sync -->
-      <div class="bg-surface-card rounded-2xl p-4 border border-surface-container shadow-sm text-center flex flex-col items-center gap-2">
-        <div class="flex items-center gap-1.5 text-xs text-text-muted">
-          <span class="material-symbols-outlined text-[16px] text-primary">cloud_sync</span>
-          <span>Versi 1.0.0 (Cloudflare Edge Connected)</span>
+        <!-- Meaning -->
+        <div class="bg-canvas-secondary rounded-2xl p-4">
+          <span class="text-[10px] font-bold uppercase tracking-wider text-primary">ARTI UTAMA (INDONESIA)</span>
+          <p class="text-base font-semibold text-text-primary mt-1 leading-snug">${token.meaning || 'Kosakata bahasa Jepang'}</p>
         </div>
-        <p class="text-[11px] text-text-muted">
-          Status: <strong class="text-primary">${state.syncStatus.toUpperCase()}</strong> • Terakhir disinkron: ${new Date(state.lastSyncTimestamp).toLocaleTimeString()}
-        </p>
-        <button id="btn-manual-sync" class="w-full py-2.5 rounded-full bg-crimson-surface text-primary font-bold text-xs hover:bg-primary hover:text-white transition-all active:scale-95 mt-1">
-          Sinkronkan Sekarang
-        </button>
-      </div>
-    </div>
-  `;
-}
 
-// -------------------------------------------------------------
-// MODALS & BOTTOM SHEETS
-// -------------------------------------------------------------
-function showModal(contentHtml: string): void {
-  const container = getEl<HTMLDivElement>('modal-container');
-  if (!container) return;
-
-  container.innerHTML = `
-    <div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div class="modal-backdrop fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity"></div>
-      <div class="relative w-full max-w-lg bg-surface-card rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl z-10 max-h-[90vh] overflow-y-auto border border-surface-container">
-        ${contentHtml}
-      </div>
-    </div>
-  `;
-  container.classList.remove('hidden');
-
-  const backdrop = container.querySelector('.modal-backdrop');
-  backdrop?.addEventListener('click', hideModal);
-}
-
-function hideModal(): void {
-  const container = getEl<HTMLDivElement>('modal-container');
-  if (!container) return;
-  container.classList.add('hidden');
-  container.innerHTML = '';
-}
-
-function showSentenceBottomSheet(sentence: Sentence): void {
-  const tokens = parseTokens(sentence.furigana_payload);
-  const grammarPoints = parseGrammarPoints(sentence.grammar_analysis);
-
-  const mainKanjiToken = tokens.find(t => t.pos === 'verb' || t.pos === 'noun' || t.pos === 'i-adj') || tokens[0];
-
-  const html = `
-    <div class="flex flex-col gap-3.5">
-      <!-- Drag handle -->
-      <div class="w-10 h-1 rounded-full bg-surface-container mx-auto"></div>
-
-      <!-- Header Expression -->
-      <div class="flex items-start justify-between gap-3">
-        <div class="flex flex-col min-w-0">
-          <div class="flex items-center gap-2">
-            <span class="font-mincho text-xl font-bold text-text-primary">${sentence.original_text}</span>
+        <!-- Sentence Context -->
+        ${sentence ? `
+          <div class="flex flex-col gap-1">
+            <span class="text-xs font-bold text-text-muted">Konteks Kalimat:</span>
+            <p class="text-xs text-text-primary font-mincho leading-relaxed">${sentence.original_text}</p>
+            ${sentence.translated_text ? `
+              <p class="text-[11px] text-text-secondary leading-snug mt-0.5">${sentence.translated_text}</p>
+            ` : ''}
           </div>
-          <span class="text-xs text-text-muted mt-0.5">${tokens.map(t => t.romaji).filter(Boolean).join(' ')}</span>
-        </div>
-        <button id="modal-close-btn" class="w-8 h-8 rounded-full bg-canvas-secondary hover:bg-crimson-surface flex items-center justify-center text-text-secondary shrink-0">
-          <span class="material-symbols-outlined text-[18px]">close</span>
-        </button>
-      </div>
+        ` : ''}
 
-      <!-- Translation Tile -->
-      <div class="p-3.5 rounded-xl bg-canvas-secondary flex flex-col gap-1">
-        <span class="text-[10px] font-bold text-text-muted uppercase tracking-wider">ARTI / TERJEMAHAN</span>
-        <p class="text-sm font-semibold text-text-primary leading-normal">
-          ${sentence.translated_text}
-        </p>
-      </div>
-
-      <!-- Grammar Breakdown -->
-      ${grammarPoints.length > 0 ? `
-        <div class="flex flex-col gap-1.5">
-          <span class="text-[10px] font-bold text-primary uppercase tracking-wider">Analisis Tata Bahasa</span>
-          ${grammarPoints.map(g => `
-            <div class="p-3 rounded-xl bg-crimson-surface/50 border border-crimson-surface flex flex-col gap-1">
-              <span class="text-xs font-bold text-primary">${g.pattern}</span>
-              <p class="text-xs text-text-secondary leading-relaxed">${g.explanation}</p>
-            </div>
-          `).join('')}
-        </div>
-      ` : ''}
-
-      <!-- Kanji Deconstruction -->
-      ${mainKanjiToken ? `
-        <div class="flex items-center gap-3 p-3 rounded-xl bg-canvas-secondary">
-          <div class="w-12 h-12 rounded-xl bg-surface-card flex items-center justify-center text-primary font-mincho text-2xl font-bold shadow-sm shrink-0">
-            ${mainKanjiToken.surface}
+        <!-- Grammar Points -->
+        ${grammarPoints.length > 0 ? `
+          <div class="flex flex-col gap-2 pt-2 border-t border-surface-container">
+            <span class="text-xs font-bold text-primary uppercase tracking-wider">Analisis Tata Bahasa</span>
+            ${grammarPoints.map(gp => `
+              <div class="p-2.5 rounded-xl bg-surface-container/50 border border-surface-container flex flex-col gap-0.5">
+                <span class="text-xs font-bold text-primary">${gp.pattern}</span>
+                <span class="text-[11px] text-text-primary leading-relaxed">${gp.explanation}</span>
+              </div>
+            `).join('')}
           </div>
-          <div class="flex flex-col min-w-0">
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-bold text-text-primary">Kanji: ${mainKanjiToken.surface}</span>
-              <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-white text-primary font-bold">${mainKanjiToken.jlpt || 'N4'}</span>
-            </div>
-            <span class="text-xs text-text-secondary truncate">Bacaan: ${mainKanjiToken.reading} • ${mainKanjiToken.meaning || 'Istilah kunci'}</span>
-          </div>
-        </div>
-      ` : ''}
-
-      <!-- Actions -->
-      <div class="grid grid-cols-2 gap-2 pt-1">
-        <button id="bs-add-flashcard-btn" class="w-full py-2.5 rounded-full bg-primary text-white font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-sm">
-          <span class="material-symbols-outlined text-[16px]">bookmark_add</span>
-          <span>+ Flashcard</span>
-        </button>
-        <button id="bs-play-audio-btn" class="w-full py-2.5 rounded-full bg-canvas-secondary text-primary font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all">
-          <span class="material-symbols-outlined text-[16px]">volume_up</span>
-          <span>Putar Audio</span>
-        </button>
+        ` : ''}
       </div>
     </div>
   `;
-
-  showModal(html);
-
-  getEl('modal-close-btn')?.addEventListener('click', hideModal);
-
-  getEl('bs-play-audio-btn')?.addEventListener('click', () => {
-    playAudioPronunciation(sentence.original_text, store.getState().settings.tts_speed);
-  });
-
-  getEl('bs-add-flashcard-btn')?.addEventListener('click', () => {
-    if (mainKanjiToken) {
-      const newVocab: Vocabulary = {
-        id: `voc_${Date.now()}`,
-        user_id: store.getState().settings.user_id,
-        sentence_id: sentence.id,
-        kanji: mainKanjiToken.surface,
-        reading: mainKanjiToken.reading,
-        meaning: mainKanjiToken.meaning || sentence.translated_text,
-        part_of_speech: mainKanjiToken.pos,
-        jlpt_level: mainKanjiToken.jlpt || 'N5',
-        mastery_status: 0,
-        review_count: 0,
-        next_review_at: Date.now() + 86400000,
-        created_at: Date.now(),
-        updated_at: Date.now()
-      };
-      store.addVocabulary(newVocab);
-      hideModal();
-      alert(`Kosakata "${mainKanjiToken.surface}" berhasil ditambahkan ke Dek Flashcard!`);
-    }
-  });
-}
-
-function showAddArticleModal(): void {
-  const html = `
-    <div class="flex flex-col gap-3.5">
-      <div class="flex items-center justify-between">
-        <h3 class="font-bold text-base text-text-primary">Tambah Catatan / Bahan Bacaan</h3>
-        <button id="modal-close-btn" class="w-8 h-8 rounded-full hover:bg-canvas-secondary flex items-center justify-center text-text-secondary">
-          <span class="material-symbols-outlined text-[18px]">close</span>
-        </button>
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <label class="text-xs font-semibold text-text-primary">Judul Catatan</label>
-        <input id="modal-art-title" type="text" placeholder="Contoh: Percakapan di Kafe Shinjuku" class="w-full px-3 py-2 bg-canvas-secondary rounded-xl text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary">
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <label class="text-xs font-semibold text-text-primary">Kategori</label>
-        <select id="modal-art-category" class="w-full px-3 py-2 bg-canvas-secondary rounded-xl text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary">
-          <option value="Percakapan">Percakapan</option>
-          <option value="Buku & Artikel">Buku & Artikel</option>
-          <option value="Lirik Lagu">Lirik Lagu</option>
-          <option value="Menu & Tempat">Menu & Tempat</option>
-          <option value="Umum">Umum</option>
-        </select>
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <label class="text-xs font-semibold text-text-primary">Teks Bahasa Jepang</label>
-        <textarea id="modal-art-text" rows="4" placeholder="Masukkan kalimat Jepang..." class="w-full px-3 py-2 bg-canvas-secondary rounded-xl text-xs text-text-primary font-mincho resize-none focus:outline-none focus:ring-1 focus:ring-primary"></textarea>
-      </div>
-
-      <button id="modal-submit-art-btn" class="w-full py-3 rounded-full bg-primary text-white font-bold text-xs shadow-sm active:scale-95 transition-all mt-1">
-        Simpan & Analisis Bacaan
-      </button>
-    </div>
-  `;
-
-  showModal(html);
-  getEl('modal-close-btn')?.addEventListener('click', hideModal);
-
-  getEl('modal-submit-art-btn')?.addEventListener('click', async () => {
-    const title = (getEl<HTMLInputElement>('modal-art-title')?.value || '').trim();
-    const category = (getEl<HTMLSelectElement>('modal-art-category')?.value || 'Percakapan');
-    const rawText = (getEl<HTMLTextAreaElement>('modal-art-text')?.value || '').trim();
-
-    if (!title || !rawText) {
-      alert('Judul dan Teks Bahasa Jepang wajib diisi.');
-      return;
-    }
-
-    const now = Date.now();
-    const artId = `art_${now}`;
-
-    // Create sentence
-    const sentId = `sent_${artId}_01`;
-    const newSentence: Sentence = {
-      id: sentId,
-      article_id: artId,
-      original_text: rawText,
-      translated_text: `Terjemahan konteks: ${title}`,
-      furigana_payload: JSON.stringify([
-        { surface: rawText, reading: rawText, romaji: '', pos: 'noun', jlpt: 'N4' }
-      ]),
-      grammar_analysis: JSON.stringify([]),
-      sequence_order: 1,
-      inspection_count: 0,
-      audio_play_count: 0,
-      needs_deep_study: 0,
-      updated_at: now
-    };
-
-    const newArticle: Article = {
-      id: artId,
-      user_id: store.getState().settings.user_id,
-      title: title,
-      category: category,
-      raw_text: rawText,
-      difficulty_level: 'N4',
-      kanji_ratio: 0.35,
-      created_at: now,
-      updated_at: now,
-      sentences: [newSentence]
-    };
-
-    store.addArticle(newArticle);
-    hideModal();
-
-    // Trigger sync
-    store.syncWithBackend();
-  });
-}
-
-function showVocabReviewModal(vocab: Vocabulary): void {
-  const html = `
-    <div class="flex flex-col gap-3.5 text-center">
-      <div class="w-10 h-1 rounded-full bg-surface-container mx-auto"></div>
-      <span class="text-[10px] font-bold text-text-muted uppercase tracking-wider">Spaced Repetition Review</span>
-
-      <div class="p-6 rounded-2xl bg-canvas-secondary flex flex-col items-center gap-1">
-        <span class="font-mincho text-3xl font-bold text-text-primary">${vocab.kanji}</span>
-        <span class="text-sm font-semibold text-primary">${vocab.reading}</span>
-        <span class="text-xs text-text-secondary mt-2">${vocab.meaning}</span>
-      </div>
-
-      <p class="text-xs text-text-muted">Seberapa mudah kamu mengingat kata ini?</p>
-
-      <div class="grid grid-cols-3 gap-2">
-        <button class="btn-srs-rating py-2.5 px-3 rounded-xl bg-surface-container text-text-primary text-xs font-bold active:scale-95 transition-all" data-q="1">
-          Ulangi
-        </button>
-        <button class="btn-srs-rating py-2.5 px-3 rounded-xl bg-canvas-secondary text-primary text-xs font-bold active:scale-95 transition-all" data-q="3">
-          Bagus
-        </button>
-        <button class="btn-srs-rating py-2.5 px-3 rounded-xl bg-primary text-white text-xs font-bold active:scale-95 transition-all shadow-sm" data-q="5">
-          Mudah
-        </button>
-      </div>
-    </div>
-  `;
-
-  showModal(html);
-
-  const buttons = document.querySelectorAll('.btn-srs-rating');
-  buttons.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const q = parseInt((e.currentTarget as HTMLElement).dataset.q || '3', 10);
-      const next = calculateNextSrsInterval(vocab.review_count, q);
-      store.updateVocabulary(vocab.id, {
-        review_count: vocab.review_count + 1,
-        mastery_status: next.nextMastery,
-        next_review_at: next.nextReviewAt
-      });
-      hideModal();
-    });
-  });
 }
 
 // -------------------------------------------------------------
-// EVENT BINDINGS
+// PROGRESSIVE BACKGROUND ANALYSIS ENGINE (ZERO TIMEOUT CHUNKS)
 // -------------------------------------------------------------
-function attachEvents(state: AppState): void {
-  // Navigation bar
-  const navButtons = document.querySelectorAll('.nav-item');
-  navButtons.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const view = (e.currentTarget as HTMLElement).dataset.view as AppState['currentView'];
-      if (view) store.setView(view);
-    });
-  });
+async function runProgressiveAnalysis(articleId: string, rawText: string): Promise<void> {
+  const sentences = store.getState().articles.find(a => a.id === articleId)?.sentences || [];
+  if (sentences.length === 0) return;
 
-  // Top bar sync trigger
-  getEl('sync-trigger-btn')?.addEventListener('click', () => {
-    store.syncWithBackend();
-  });
+  // Chunk into 2-3 sentences max
+  const chunks: Sentence[][] = [];
+  let cur: Sentence[] = [];
+  let curLen = 0;
 
-  // Splash screen buttons
-  getEl('splash-start-btn')?.addEventListener('click', () => {
-    store.setView('quick-read');
-  });
-  getEl('splash-library-btn')?.addEventListener('click', () => {
-    store.setView('koleksi');
-  });
-
-  // Quick read events
-  const qrInput = getEl<HTMLTextAreaElement>('qr-input');
-  qrInput?.addEventListener('input', (e) => {
-    const len = (e.target as HTMLTextAreaElement).value.length;
-    const charCountEl = getEl('qr-char-count');
-    if (charCountEl) charCountEl.innerText = `${len} Karakter`;
-  });
-
-  getEl('qr-clear-btn')?.addEventListener('click', () => {
-    if (qrInput) {
-      qrInput.value = '';
-      qrInput.dispatchEvent(new Event('input'));
+  for (const s of sentences) {
+    if (cur.length > 0 && (curLen + s.original_text.length > 350 || cur.length >= 3)) {
+      chunks.push(cur);
+      cur = [];
+      curLen = 0;
     }
-  });
+    cur.push(s);
+    curLen += s.original_text.length;
+  }
+  if (cur.length > 0) chunks.push(cur);
 
-  getEl('qr-paste-btn')?.addEventListener('click', async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (qrInput && text) {
-        qrInput.value = text;
-        qrInput.dispatchEvent(new Event('input'));
-      }
-    } catch {
-      alert('Gunakan Ctrl+V untuk menempel.');
-    }
-  });
+  const total = chunks.length;
 
-  const chips = document.querySelectorAll('.qr-chip');
-  chips.forEach(c => {
-    c.addEventListener('click', (e) => {
-      const txt = (e.currentTarget as HTMLElement).dataset.text || '';
-      if (qrInput) {
-        qrInput.value = txt;
-        qrInput.dispatchEvent(new Event('input'));
-      }
+  for (let i = 0; i < total; i++) {
+    const chunk = chunks[i];
+    store.updateAnalysisProgress({
+      articleId,
+      currentChunk: i + 1,
+      totalChunks: total,
+      isComplete: false
     });
-  });
 
-  getEl('qr-analyze-btn')?.addEventListener('click', async () => {
-    const text = qrInput?.value.trim() || '';
-    if (!text) return;
-
-    isAnalyzing = true;
-    store.setView('quick-read');
-
+    const chunkText = chunk.map(s => s.original_text).join('');
     try {
       const res = await fetch(`${store.getState().apiBaseUrl}/api/v1/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          api_key: store.getState().settings.deepseek_api_key || undefined
-        })
+        body: JSON.stringify({ text: chunkText })
       });
 
       if (res.ok) {
-        const data = await res.json() as {
-          difficulty_level: string;
-          kanji_ratio: number;
-          sentences: Array<{
-            sequence_order: number;
-            original_text: string;
+        interface AnalyzeResponsePayload {
+          sentences?: Array<{
             translated_text: string;
             tokens: Token[];
             grammar_points: GrammarPoint[];
           }>;
-        };
-        quickReadResult = { text, ...data };
-      }
-    } catch (e) {
-      console.warn('API error, falling back to local result', e);
-    } finally {
-      isAnalyzing = false;
-      store.setView('quick-read');
-    }
-  });
-
-  getEl('qr-play-audio-btn')?.addEventListener('click', () => {
-    const text = qrInput?.value.trim() || '今週の土曜日に新しいカフェに行きませんか。';
-    playAudioPronunciation(text, store.getState().settings.tts_speed);
-  });
-
-  getEl('qr-copy-btn')?.addEventListener('click', () => {
-    const text = qrInput?.value.trim() || '';
-    if (text) {
-      navigator.clipboard.writeText(text);
-      alert('Hasil teks berhasil disalin!');
-    }
-  });
-
-  getEl('qr-save-to-collection-btn')?.addEventListener('click', () => {
-    const text = qrInput?.value.trim() || '今週の土曜日に新しいカフェに行きませんか。';
-    const now = Date.now();
-    const artId = `art_${now}`;
-
-    const newArticle: Article = {
-      id: artId,
-      user_id: store.getState().settings.user_id,
-      title: quickReadResult?.sentences[0]?.translated_text.substring(0, 30) || 'Bacaan Baru',
-      category: 'Percakapan',
-      raw_text: text,
-      difficulty_level: quickReadResult?.difficulty_level || 'N4',
-      kanji_ratio: quickReadResult?.kanji_ratio || 0.35,
-      created_at: now,
-      updated_at: now,
-      sentences: [
-        {
-          id: `sent_${artId}_01`,
-          article_id: artId,
-          original_text: text,
-          translated_text: quickReadResult?.sentences[0]?.translated_text || 'Terjemahan langsung',
-          furigana_payload: JSON.stringify(quickReadResult?.sentences[0]?.tokens || []),
-          grammar_analysis: JSON.stringify(quickReadResult?.sentences[0]?.grammar_points || []),
-          sequence_order: 1,
-          inspection_count: 0,
-          audio_play_count: 0,
-          needs_deep_study: 0,
-          updated_at: now
         }
-      ]
-    };
-
-    store.addArticle(newArticle);
-    alert('Bacaan berhasil disimpan ke Koleksi!');
-    store.setView('koleksi');
-  });
-
-  // Koleksi Events
-  getEl('btn-add-article-modal')?.addEventListener('click', showAddArticleModal);
-  getEl('btn-paste-clipboard')?.addEventListener('click', async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text) {
-        showAddArticleModal();
-        const textInput = getEl<HTMLTextAreaElement>('modal-art-text');
-        if (textInput) textInput.value = text;
+        const data = (await res.json()) as AnalyzeResponsePayload;
+        if (data.sentences && Array.isArray(data.sentences)) {
+          chunk.forEach((s, sIdx) => {
+            const analyzed = data.sentences ? data.sentences[sIdx] : undefined;
+            if (analyzed) {
+              s.translated_text = analyzed.translated_text;
+              s.furigana_payload = JSON.stringify(analyzed.tokens);
+              s.grammar_analysis = JSON.stringify(analyzed.grammar_points);
+            }
+          });
+          store.notify();
+        }
       }
     } catch {
-      showAddArticleModal();
+      // Continue next chunk gracefully
     }
+  }
+
+  store.updateAnalysisProgress({
+    articleId,
+    currentChunk: total,
+    totalChunks: total,
+    isComplete: true
   });
 
-  const catPills = document.querySelectorAll('.category-pill');
-  catPills.forEach(p => {
-    p.addEventListener('click', (e) => {
-      selectedCategory = (e.currentTarget as HTMLElement).dataset.category || 'Semua';
-      store.setView('koleksi');
-    });
-  });
-
-  const searchInput = getEl<HTMLInputElement>('article-search-input');
-  searchInput?.addEventListener('input', (e) => {
-    searchQuery = (e.target as HTMLInputElement).value;
-    const viewContainer = getEl('view-container');
-    if (viewContainer) {
-      viewContainer.innerHTML = renderKoleksi(store.getState());
-      attachEvents(store.getState());
+  setTimeout(() => {
+    if (store.getState().analysisProgress?.articleId === articleId) {
+      store.updateAnalysisProgress(null);
     }
-  });
-
-  const openReaderButtons = document.querySelectorAll('.btn-open-reader');
-  openReaderButtons.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const id = (e.currentTarget as HTMLElement).dataset.id;
-      const article = store.getState().articles.find(a => a.id === id);
-      if (article) {
-        store.setActiveArticle(article);
-        store.setView('reader');
-      }
-    });
-  });
-
-  const deleteArticleButtons = document.querySelectorAll('.btn-delete-article');
-  deleteArticleButtons.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const id = (e.currentTarget as HTMLElement).dataset.id;
-      if (id && confirm('Apakah Anda yakin ingin menghapus bacaan ini?')) {
-        store.deleteArticle(id);
-      }
-    });
-  });
-
-  // Reader Studio Events
-  getEl('reader-back-btn')?.addEventListener('click', () => {
-    store.setView('koleksi');
-  });
-  getEl('reader-back-to-library')?.addEventListener('click', () => {
-    store.setView('koleksi');
-  });
-
-  const furiModeButtons = document.querySelectorAll('.furi-mode-btn');
-  furiModeButtons.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const mode = (e.currentTarget as HTMLElement).dataset.mode as 'always' | 'tap' | 'off';
-      if (mode) {
-        store.updateSettings({ furigana_mode: mode });
-      }
-    });
-  });
-
-  const sentenceRows = document.querySelectorAll('.reader-sentence-row');
-  sentenceRows.forEach(row => {
-    row.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
-      if (target.closest('.btn-inspect-action')) return; // handled by toolbar
-
-      const index = parseInt((e.currentTarget as HTMLElement).dataset.index || '0', 10);
-      const sentId = (e.currentTarget as HTMLElement).dataset.sentId || '';
-      store.setActiveSentenceIndex(index);
-      store.inspectSentence(sentId);
-    });
-  });
-
-  const inspectActions = document.querySelectorAll('.btn-inspect-action');
-  inspectActions.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const action = (e.currentTarget as HTMLElement).dataset.action;
-      const article = store.getState().activeArticle;
-      if (!article || !article.sentences) return;
-
-      const sentence = article.sentences[store.getState().activeSentenceIndex];
-      if (!sentence) return;
-
-      if (action === 'translate' || action === 'save') {
-        showSentenceBottomSheet(sentence);
-      } else if (action === 'audio') {
-        playAudioPronunciation(sentence.original_text, store.getState().settings.tts_speed);
-      }
-    });
-  });
-
-  // Vocab Events
-  const vocabFilterPills = document.querySelectorAll('.vocab-filter-pill');
-  vocabFilterPills.forEach(p => {
-    p.addEventListener('click', (e) => {
-      selectedVocabFilter = (e.currentTarget as HTMLElement).dataset.filter || 'Semua';
-      store.setView('vocab');
-    });
-  });
-
-  const playVocabAudioBtns = document.querySelectorAll('.btn-play-vocab-audio');
-  playVocabAudioBtns.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const kanji = (e.currentTarget as HTMLElement).dataset.kanji || '';
-      playAudioPronunciation(kanji, store.getState().settings.tts_speed);
-    });
-  });
-
-  const reviewVocabBtns = document.querySelectorAll('.btn-review-vocab');
-  reviewVocabBtns.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const id = (e.currentTarget as HTMLElement).dataset.id;
-      const vocab = store.getState().vocabularies.find(v => v.id === id);
-      if (vocab) {
-        showVocabReviewModal(vocab);
-      }
-    });
-  });
-
-  const deleteVocabBtns = document.querySelectorAll('.btn-delete-vocab');
-  deleteVocabBtns.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const id = (e.currentTarget as HTMLElement).dataset.id;
-      if (id && confirm('Hapus kosakata ini dari dek belajar?')) {
-        store.deleteVocabulary(id);
-      }
-    });
-  });
-
-  // Settings Events
-  const furiSettingBtns = document.querySelectorAll('.furi-setting-btn');
-  furiSettingBtns.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const mode = (e.currentTarget as HTMLElement).dataset.mode as 'always' | 'tap' | 'off';
-      if (mode) store.updateSettings({ furigana_mode: mode });
-    });
-  });
-
-  const fontSettingBtns = document.querySelectorAll('.font-setting-btn');
-  fontSettingBtns.forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const font = (e.currentTarget as HTMLElement).dataset.font as 'mincho' | 'gothic';
-      if (font) store.updateSettings({ kanji_font_style: font });
-    });
-  });
-
-  const speedRange = getEl<HTMLInputElement>('settings-speed-range');
-  speedRange?.addEventListener('input', (e) => {
-    const val = parseFloat((e.target as HTMLInputElement).value);
-    const ind = getEl('speed-indicator');
-    if (ind) ind.innerText = `${val.toFixed(1)}x`;
-    store.updateSettings({ tts_speed: val });
-  });
-
-  getEl('settings-preview-audio')?.addEventListener('click', () => {
-    playAudioPronunciation('東京の春は桜が満開です。', store.getState().settings.tts_speed);
-  });
-
-  getEl('btn-save-key')?.addEventListener('click', () => {
-    const key = (getEl<HTMLInputElement>('deepseek-key-input')?.value || '').trim();
-    store.updateSettings({ deepseek_api_key: key || null });
-    alert('Kunci API DeepSeek berhasil diperbarui!');
-  });
-
-  getEl('btn-manual-sync')?.addEventListener('click', () => {
-    store.syncWithBackend();
-  });
+  }, 2500);
 }
 
 // -------------------------------------------------------------
-// MAIN RENDER LOOP
+// MAIN RENDER LOOP & EVENT ATTACHMENTS
 // -------------------------------------------------------------
 function renderApp(state: AppState): void {
   const container = getEl('view-container');
   if (!container) return;
 
-  // Update Top Bar & Sync status
+  const topAppBar = getEl('top-app-bar');
+  const bottomNav = getEl('bottom-nav');
+  const mainEl = document.querySelector('main');
+
+  // Handle Full-Width Zen Mode in Reader
+  if (state.currentView === 'reader') {
+    topAppBar?.classList.add('hidden');
+    bottomNav?.classList.add('hidden');
+    mainEl?.classList.remove('pb-28', 'pt-3', 'px-4');
+    mainEl?.classList.add('p-0', 'max-w-none');
+  } else {
+    topAppBar?.classList.remove('hidden');
+    bottomNav?.classList.remove('hidden');
+    mainEl?.classList.add('pb-28', 'pt-3', 'px-4');
+    mainEl?.classList.remove('p-0', 'max-w-none');
+  }
+
+  // Update Top Bar Sync status
   const syncIcon = getEl('sync-icon');
   const syncText = getEl('sync-text');
   if (syncIcon && syncText) {
@@ -1414,59 +813,431 @@ function renderApp(state: AppState): void {
     } else {
       syncIcon.innerText = 'cloud_off';
       syncIcon.classList.remove('animate-spin');
-      syncText.innerText = 'Luring (Offline)';
+      syncText.innerText = 'Luring';
     }
   }
 
-  // Update navigation highlight
+  // Highlight active bottom nav item
   const navButtons = document.querySelectorAll('.nav-item');
   navButtons.forEach(btn => {
     const view = (btn as HTMLElement).dataset.view;
     if (view === state.currentView) {
-      btn.classList.add('text-primary', 'font-bold');
+      btn.classList.add('text-primary');
       btn.classList.remove('text-text-muted');
+      const label = btn.querySelector('span:last-child');
+      if (label) label.classList.add('font-bold');
     } else {
-      btn.classList.remove('text-primary', 'font-bold');
+      btn.classList.remove('text-primary');
       btn.classList.add('text-text-muted');
+      const label = btn.querySelector('span:last-child');
+      if (label) label.classList.remove('font-bold');
     }
   });
 
-  // Render current view
+  // Render view
   let html = '';
   switch (state.currentView) {
     case 'splash':
       html = renderSplash(state);
       break;
-    case 'quick-read':
-      html = renderQuickRead(state);
-      break;
     case 'koleksi':
       html = renderKoleksi(state);
       break;
-    case 'reader':
-      html = renderReader(state);
-      break;
+    case 'flashcards':
     case 'vocab':
-      html = renderVocab(state);
+      html = renderFlashcards(state);
       break;
+    case 'progress':
     case 'analytics':
       html = renderAnalytics(state);
       break;
     case 'settings':
       html = renderSettings(state);
       break;
+    case 'reader':
+      html = renderReader(state);
+      break;
+    default:
+      html = renderKoleksi(state);
   }
 
   container.innerHTML = html;
+
+  // Render Modal Container
+  const modalContainer = getEl('modal-container');
+  if (modalContainer) {
+    if (showAddTextModal) {
+      modalContainer.innerHTML = renderAddTextModal();
+      modalContainer.classList.remove('hidden');
+    } else if (inspectedToken) {
+      modalContainer.innerHTML = renderWordInspectionModal();
+      modalContainer.classList.remove('hidden');
+    } else {
+      modalContainer.innerHTML = '';
+      modalContainer.classList.add('hidden');
+    }
+  }
+
   attachEvents(state);
 }
 
-// Subscribe store to render loop
+// -------------------------------------------------------------
+// EVENT DISPATCHER
+// -------------------------------------------------------------
+function attachEvents(state: AppState): void {
+  // Navigation tabs
+  document.querySelectorAll('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const view = (btn as HTMLElement).dataset.view as AppState['currentView'] | undefined;
+      if (view) {
+        showAddTextModal = false;
+        inspectedToken = null;
+        store.setView(view);
+      }
+    });
+  });
+
+  // Center (+) FAB Button
+  getEl('nav-add-btn')?.addEventListener('click', () => {
+    showAddTextModal = true;
+    renderApp(store.getState());
+  });
+
+  // Splash buttons
+  getEl('splash-start-btn')?.addEventListener('click', () => {
+    store.setView('koleksi');
+  });
+
+  // Collection Search
+  const searchInput = getEl<HTMLInputElement>('collection-search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      searchQuery = searchInput.value;
+      renderApp(store.getState());
+    });
+  }
+
+  // Collection Category Filter
+  document.querySelectorAll('.collection-cat-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedCategory = (btn as HTMLElement).dataset.category || 'Semua';
+      renderApp(store.getState());
+    });
+  });
+
+  // Open Article from Collection
+  document.querySelectorAll('.article-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const artId = (card as HTMLElement).dataset.artId;
+      if (artId) {
+        readerExpandedSentences.clear();
+        readerShowPillBar = false;
+        store.openArticle(artId);
+      }
+    });
+  });
+
+  // Reader Back Button
+  getEl('reader-back-btn')?.addEventListener('click', () => {
+    store.setView('koleksi');
+  });
+  getEl('reader-back-to-library')?.addEventListener('click', () => {
+    store.setView('koleksi');
+  });
+
+  // Reader Canvas Click (toggle floating pill bar on whitespace)
+  const readerCanvas = getEl('reader-article-content');
+  if (readerCanvas) {
+    readerCanvas.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.token-word') && !target.closest('button') && !target.closest('a')) {
+        readerShowPillBar = !readerShowPillBar;
+        const pill = getEl('reader-floating-pill');
+        if (pill) {
+          if (readerShowPillBar) pill.classList.remove('hidden');
+          else pill.classList.add('hidden');
+        }
+      }
+    });
+  }
+
+  // Pill Bar Toggles
+  getEl('pill-furi-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    readerFuriganaMode = readerFuriganaMode === 'always' ? 'off' : 'always';
+    renderApp(store.getState());
+  });
+
+  getEl('pill-trans-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    readerTranslateMode = !readerTranslateMode;
+    renderApp(store.getState());
+  });
+
+  getEl('pill-font-minus')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    readerFontSizeSp = Math.max(16, readerFontSizeSp - 2);
+    renderApp(store.getState());
+  });
+
+  getEl('pill-font-plus')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    readerFontSizeSp = Math.min(32, readerFontSizeSp + 2);
+    renderApp(store.getState());
+  });
+
+  // Toggle Single Sentence Inline Translation
+  document.querySelectorAll('.btn-toggle-inline-trans').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sentId = (btn as HTMLElement).dataset.sentId;
+      if (sentId) {
+        if (readerExpandedSentences.has(sentId)) {
+          readerExpandedSentences.delete(sentId);
+        } else {
+          readerExpandedSentences.add(sentId);
+        }
+        renderApp(store.getState());
+      }
+    });
+  });
+
+  // Token Click -> Open Word Inspection Modal & Auto-Save
+  document.querySelectorAll('.token-word').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const tokenRaw = (el as HTMLElement).dataset.token;
+      const sentId = (el as HTMLElement).dataset.sentId;
+      if (tokenRaw) {
+        try {
+          const token: Token = JSON.parse(decodeURIComponent(tokenRaw));
+          inspectedToken = token;
+          const article = store.getState().activeArticle;
+          inspectedSentence = article?.sentences?.find(s => s.id === sentId) || null;
+
+          // Auto-save word to Flashcard deck
+          if (token.surface && !['、', '。', '！', '？', 'は', 'が', 'の', 'に', 'で', 'を', 'と'].includes(token.surface)) {
+            const now = Date.now();
+            store.addVocabulary({
+              id: `voc_${now}_${Math.random().toString(36).substring(2, 6)}`,
+              user_id: 'usr_default',
+              sentence_id: sentId || null,
+              kanji: token.surface,
+              reading: token.reading || token.surface,
+              meaning: token.meaning || inspectedSentence?.translated_text || 'Kosakata bahasa Jepang',
+              part_of_speech: token.pos || 'noun',
+              jlpt_level: token.jlpt || 'N5',
+              mastery_status: 0,
+              review_count: 0,
+              next_review_at: now + 86400000,
+              created_at: now,
+              updated_at: now
+            });
+          }
+
+          renderApp(store.getState());
+        } catch {}
+      }
+    });
+  });
+
+  // Article Footer Buttons
+  getEl('reader-finish-btn')?.addEventListener('click', () => {
+    store.setView('koleksi');
+  });
+
+  getEl('reader-show-words-btn')?.addEventListener('click', () => {
+    store.setView('flashcards');
+  });
+
+  // Word Inspection Modal Close & Audio
+  getEl('word-modal-close')?.addEventListener('click', () => {
+    inspectedToken = null;
+    inspectedSentence = null;
+    renderApp(store.getState());
+  });
+  getEl('word-modal-backdrop')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      inspectedToken = null;
+      inspectedSentence = null;
+      renderApp(store.getState());
+    }
+  });
+  document.querySelectorAll('.btn-play-word-audio').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const text = (btn as HTMLElement).dataset.text;
+      if (text) playAudioPronunciation(text, store.getState().settings.tts_speed);
+    });
+  });
+
+  // Flashcards 3D Flip
+  getEl('flashcard-flip-container')?.addEventListener('click', () => {
+    isFlashcardFlipped = !isFlashcardFlipped;
+    const flipper = getEl('flashcard-flipper');
+    if (flipper) {
+      if (isFlashcardFlipped) flipper.classList.add('rotate-y-180');
+      else flipper.classList.remove('rotate-y-180');
+    }
+  });
+
+  // Flashcard Filters
+  document.querySelectorAll('.fc-filter-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedFlashcardFilter = (btn as HTMLElement).dataset.filter || 'Semua';
+      currentFlashcardIndex = 0;
+      isFlashcardFlipped = false;
+      renderApp(store.getState());
+    });
+  });
+
+  // Flashcard Prev/Next
+  getEl('fc-prev-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (currentFlashcardIndex > 0) {
+      currentFlashcardIndex--;
+      isFlashcardFlipped = false;
+      renderApp(store.getState());
+    }
+  });
+  getEl('fc-next-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    currentFlashcardIndex++;
+    isFlashcardFlipped = false;
+    renderApp(store.getState());
+  });
+
+  // Flashcard Audio
+  document.querySelectorAll('.btn-play-fc-audio').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const kanji = (btn as HTMLElement).dataset.kanji;
+      if (kanji) playAudioPronunciation(kanji, store.getState().settings.tts_speed);
+    });
+  });
+
+  // Flashcard SRS Rating (Lupa / Ingat)
+  document.querySelectorAll('.btn-srs-rating').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const q = parseInt((btn as HTMLElement).dataset.quality || '3', 10);
+      const id = (btn as HTMLElement).dataset.id;
+      const vocab = store.getState().vocabularies.find(v => v.id === id);
+      if (vocab) {
+        const { nextReviewAt, nextMastery } = calculateNextSrsInterval(vocab.review_count, q);
+        store.updateVocabulary({
+          ...vocab,
+          mastery_status: nextMastery,
+          review_count: vocab.review_count + 1,
+          next_review_at: nextReviewAt
+        });
+
+        isFlashcardFlipped = false;
+        renderApp(store.getState());
+      }
+    });
+  });
+
+  // Settings Actions
+  document.querySelectorAll('.font-setting-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const font = (btn as HTMLElement).dataset.font as 'mincho' | 'gothic';
+      if (font) {
+        store.updateSettings({ kanji_font_style: font });
+      }
+    });
+  });
+
+  const speedRange = getEl<HTMLInputElement>('settings-speed-range');
+  if (speedRange) {
+    speedRange.addEventListener('input', () => {
+      const val = parseFloat(speedRange.value);
+      store.updateSettings({ tts_speed: val });
+    });
+  }
+
+  getEl('settings-sync-btn')?.addEventListener('click', () => {
+    store.syncWithBackend();
+  });
+  getEl('sync-trigger-btn')?.addEventListener('click', () => {
+    store.syncWithBackend();
+  });
+
+  // Add Text Modal Close
+  getEl('modal-close-btn')?.addEventListener('click', () => {
+    showAddTextModal = false;
+    renderApp(store.getState());
+  });
+  getEl('modal-backdrop')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      showAddTextModal = false;
+      renderApp(store.getState());
+    }
+  });
+
+  // Add Text Submit -> Instant Open in 0ms + Progressive Analysis!
+  getEl('modal-submit-btn')?.addEventListener('click', () => {
+    const titleInput = getEl<HTMLInputElement>('modal-title-input');
+    const textInput = getEl<HTMLTextAreaElement>('modal-text-input');
+    const rawText = textInput ? textInput.value.trim() : '';
+    if (!rawText) {
+      alert('Teks bahasa Jepang tidak boleh kosong.');
+      return;
+    }
+
+    const title = titleInput?.value.trim() || (rawText.length > 20 ? rawText.substring(0, 20) + '...' : rawText);
+    const now = Date.now();
+    const artId = `art_${now}_${Math.random().toString(36).substring(2, 6)}`;
+
+    // Natural sentence splitting:
+    const rawSentences = rawText.split(/(?<=[。！？\n])/).map(s => s.trim()).filter(s => s.length > 0);
+    const sentenceList = rawSentences.length > 0 ? rawSentences : [rawText];
+
+    const sentences: Sentence[] = sentenceList.map((s, idx) => ({
+      id: `sent_${artId}_${idx + 1}`,
+      article_id: artId,
+      original_text: s,
+      translated_text: '',
+      furigana_payload: '[]',
+      grammar_analysis: '[]',
+      sequence_order: idx + 1,
+      inspection_count: 0,
+      audio_play_count: 0,
+      needs_deep_study: 0,
+      updated_at: now
+    }));
+
+    const article: Article = {
+      id: artId,
+      user_id: 'usr_default',
+      title,
+      category: 'Umum',
+      raw_text: rawText,
+      difficulty_level: '-',
+      kanji_ratio: 0.0,
+      created_at: now,
+      updated_at: now,
+      sentences
+    };
+
+    // Instant save & instant open (0ms)
+    store.addArticle(article, sentences);
+    showAddTextModal = false;
+    readerExpandedSentences.clear();
+    readerShowPillBar = false;
+    store.openArticle(artId);
+
+    // Launch background progressive analysis
+    runProgressiveAnalysis(artId, rawText);
+  });
+}
+
+// -------------------------------------------------------------
+// STORE SUBSCRIPTION & INITIALIZATION
+// -------------------------------------------------------------
 store.subscribe(renderApp);
 
-// Initial render
 if (typeof document !== 'undefined') {
   renderApp(store.getState());
-  // Try syncing on start
   store.syncWithBackend();
 }

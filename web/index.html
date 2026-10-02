@@ -57,10 +57,14 @@
     .pt-safe { padding-top: env(safe-area-inset-top, 16px); }
     ::-webkit-scrollbar { display: none; }
     ruby rt {
-      font-size: 11px;
-      line-height: 14px;
+      font-size: 10px;
+      line-height: 12px;
       user-select: none;
     }
+    .perspective-1000 { perspective: 1000px; -webkit-perspective: 1000px; }
+    .transform-style-3d { transform-style: preserve-3d; -webkit-transform-style: preserve-3d; }
+    .backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+    .rotate-y-180 { transform: rotateY(180deg); -webkit-transform: rotateY(180deg); }
   </style>
 </head>
 <body class="bg-surface text-text-primary min-h-screen flex flex-col antialiased selection:bg-highlight-pink selection:text-primary">
@@ -91,27 +95,38 @@
   </main>
 
   <!-- BOTTOM NAVIGATION -->
+  <!-- BOTTOM NAVIGATION (4 Tabs + Center Add FAB matching Mobile App) -->
   <nav id="bottom-nav" class="fixed bottom-0 inset-x-0 z-40 pb-safe bg-surface/95 backdrop-blur-xl border-t border-surface-container shadow-[0_-4px_20px_rgba(128,43,43,0.06)]">
     <div class="flex justify-around items-center h-16 px-2 max-w-2xl mx-auto">
-      <button class="nav-item flex flex-col items-center justify-center gap-1 min-w-[56px] text-text-muted hover:text-primary transition-colors" data-view="koleksi">
-        <span class="material-symbols-outlined text-[22px]">menu_book</span>
-        <span class="text-[11px] font-semibold">Koleksi</span>
+      <!-- Tab 0: Koleksi -->
+      <button class="nav-item flex flex-col items-center justify-center gap-1 flex-1 text-primary transition-colors" data-view="koleksi">
+        <span class="material-symbols-outlined text-[20px]">menu_book</span>
+        <span class="text-[10px] font-bold">Koleksi</span>
       </button>
-      <button class="nav-item flex flex-col items-center justify-center gap-1 min-w-[56px] text-text-muted hover:text-primary transition-colors" data-view="quick-read">
-        <span class="material-symbols-outlined text-[22px]">auto_stories</span>
-        <span class="text-[11px] font-semibold">Quick Read</span>
+
+      <!-- Tab 1: Flashcard -->
+      <button class="nav-item flex flex-col items-center justify-center gap-1 flex-1 text-text-muted hover:text-primary transition-colors" data-view="flashcards">
+        <span class="material-symbols-outlined text-[20px]">style</span>
+        <span class="text-[10px] font-semibold">Flashcard</span>
       </button>
-      <button class="nav-item flex flex-col items-center justify-center gap-1 min-w-[56px] text-text-muted hover:text-primary transition-colors" data-view="vocab">
-        <span class="material-symbols-outlined text-[22px]">style</span>
-        <span class="text-[11px] font-semibold">Kosakata</span>
+
+      <!-- Center FAB (+): Add text modal -->
+      <div class="flex items-center justify-center flex-1">
+        <button id="nav-add-btn" class="w-12 h-12 rounded-full bg-primary text-white flex items-center justify-center shadow-lg active:scale-95 transition-transform hover:bg-primary-container" title="Tambah Bahan Bacaan Baru">
+          <span class="material-symbols-outlined text-[24px]">add</span>
+        </button>
+      </div>
+
+      <!-- Tab 2: Kemajuan -->
+      <button class="nav-item flex flex-col items-center justify-center gap-1 flex-1 text-text-muted hover:text-primary transition-colors" data-view="progress">
+        <span class="material-symbols-outlined text-[20px]">insights</span>
+        <span class="text-[10px] font-semibold">Kemajuan</span>
       </button>
-      <button class="nav-item flex flex-col items-center justify-center gap-1 min-w-[56px] text-text-muted hover:text-primary transition-colors" data-view="analytics">
-        <span class="material-symbols-outlined text-[22px]">query_stats</span>
-        <span class="text-[11px] font-semibold">Analisis</span>
-      </button>
-      <button class="nav-item flex flex-col items-center justify-center gap-1 min-w-[56px] text-text-muted hover:text-primary transition-colors" data-view="settings">
-        <span class="material-symbols-outlined text-[22px]">settings</span>
-        <span class="text-[11px] font-semibold">Pengaturan</span>
+
+      <!-- Tab 3: Pengaturan -->
+      <button class="nav-item flex flex-col items-center justify-center gap-1 flex-1 text-text-muted hover:text-primary transition-colors" data-view="settings">
+        <span class="material-symbols-outlined text-[20px]">tune</span>
+        <span class="text-[10px] font-semibold">Pengaturan</span>
       </button>
     </div>
   </nav>

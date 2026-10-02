@@ -58,7 +58,7 @@ describe('Komorebi Japanese Reader AI - Web App Logic Suite', () => {
     it('omits rt ruby annotations when mode is "off"', () => {
       const html = buildRubyHtml(sampleTokens, 'off');
       expect(html).not.toContain('<rt');
-      expect(html).toContain('<span>東京</span>');
+      expect(html).toContain('東京');
     });
 
     it('applies hidden hover class when mode is "tap"', () => {
